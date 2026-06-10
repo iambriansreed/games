@@ -1,0 +1,1091 @@
+/* Generated from original/styles.css, scoped under .splendor-board.
+   The base rules are generated — regenerate them if the original changes — but
+   the hand-maintained theme/layout overrides at the BOTTOM of this file must be
+   preserved across regenerations. */
+
+@keyframes card-shake {
+    0%,
+    100% {
+        transform: translateX(0);
+    }
+    20% {
+        transform: translateX(-4px);
+    }
+    40% {
+        transform: translateX(4px);
+    }
+    60% {
+        transform: translateX(-3px);
+    }
+    80% {
+        transform: translateX(3px);
+    }
+}
+
+@keyframes pg-bump {
+    0% {
+        transform: scale(1);
+    }
+    45% {
+        transform: scale(1.18);
+    }
+    100% {
+        transform: scale(1);
+    }
+}
+
+/* Pulse the buyable-card gold outline between faint and solid. */
+@keyframes buy-outline-pulse {
+    0%,
+    100% {
+        opacity: 0.3;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+.splendor-board {
+    --color-background-secondary: #0e0f12;
+    --color-border-tertiary: #2a2e36;
+    --border-radius-xl: 26px;
+
+    --gem-white: #e9e6dd;
+    --gem-blue: #5a8fd6;
+    --gem-green: #4f9d6b;
+    --gem-red: #c0392b;
+    /* Warm brown for the 5th gem — the original's near-black blended into the
+       dark board. */
+    --gem-brown: #6f4a32;
+    --gem-brown-border: #946d4c;
+    --gem-gold: #d9b44a;
+
+    --cost-red: color-mix(in srgb, var(--gem-red) 60%, white);
+    --cost-blue: color-mix(in srgb, var(--gem-blue) 60%, white);
+    --cost-green: color-mix(in srgb, var(--gem-green) 60%, white);
+    --cost-brown: color-mix(in srgb, var(--gem-brown) 60%, white);
+    --cost-white: color-mix(in srgb, var(--gem-white) 60%, white);
+
+    --empty-token-bg: var(--color-background-secondary);
+
+    /* Device frame */
+
+    .screen {
+        background: transparent;
+        padding: 10px 10px 14px;
+    }
+
+    /* Shared fill colors for tokens, cards and bank */
+
+    .white,
+    .blue,
+    .green,
+    .red,
+    .brown,
+    .gold {
+        --accent: #000;
+        --on-accent: #fff;
+        --cost-accent: #000;
+
+        .fill,
+        &.fill {
+            background: var(--accent);
+            color: var(--on-accent);
+        }
+
+        &.cost {
+            color: var(--cost-accent);
+        }
+
+        &.empty,
+        .empty {
+            border: 2px dashed var(--accent);
+        }
+    }
+
+    .white {
+        --accent: var(--gem-white);
+        --on-accent: #333a45;
+        --cost-accent: var(--cost-white);
+
+        &.card {
+            background-image:
+                repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 13px),
+                repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 13px);
+        }
+    }
+
+    .blue {
+        --accent: var(--gem-blue);
+        --cost-accent: var(--cost-blue);
+
+        &.card {
+            background-image: radial-gradient(rgba(255, 255, 255, 0.09) 1.3px, transparent 1.4px);
+            background-size: 11px 11px;
+        }
+    }
+
+    .green {
+        --accent: var(--gem-green);
+        --cost-accent: var(--cost-green);
+
+        &.card {
+            background-image: repeating-linear-gradient(
+                45deg,
+                rgba(255, 255, 255, 0.06) 0 2px,
+                transparent 2px 11px
+            );
+        }
+    }
+
+    .red {
+        --accent: var(--gem-red);
+        --cost-accent: var(--cost-red);
+
+        &.card {
+            background-image: repeating-linear-gradient(
+                90deg,
+                rgba(255, 255, 255, 0.05) 0 1px,
+                transparent 1px 9px
+            );
+        }
+    }
+
+    .brown {
+        --accent: var(--gem-brown);
+        --cost-accent: var(--cost-brown);
+
+        &.card {
+            background-image:
+                repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 12px),
+                repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 12px);
+        }
+    }
+
+    .gold {
+        --accent: var(--gem-gold);
+        --on-accent: #2c2104;
+        --cost-accent: var(--cost-gold);
+    }
+
+    /* Current player heading above own gems */
+
+    .self-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 8px 12px;
+    }
+
+    .self-head-left {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+    }
+
+    .self-name {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 1px;
+        color: var(--gem-red);
+    }
+
+    .self-turn {
+        font-size: 12px;
+        color: #8a8f99;
+    }
+
+    .self-score {
+        font-size: 20px;
+        font-weight: 600;
+        color: #f2f0ea;
+    }
+
+    /* Players */
+
+    .players-scroll {
+        position: relative;
+        margin-bottom: 7px;
+    }
+
+    /* Slight shadow over players scrolled partly out of view */
+
+    .players-scroll::before,
+    .players-scroll::after,
+    .nobles-scroll::before,
+    .nobles-scroll::after,
+    .self-nobles-scroll::before,
+    .self-nobles-scroll::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 12px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        z-index: 5;
+    }
+
+    .players-scroll::before,
+    .nobles-scroll::before,
+    .self-nobles-scroll::before {
+        left: 0;
+        background: linear-gradient(to right, rgba(7, 8, 10, 0.95), rgba(7, 8, 10, 0));
+    }
+
+    .players-scroll::after,
+    .nobles-scroll::after,
+    .self-nobles-scroll::after {
+        right: 0;
+        background: linear-gradient(to left, rgba(7, 8, 10, 0.95), rgba(7, 8, 10, 0));
+    }
+
+    .players-scroll.has-left::before,
+    .nobles-scroll.has-left::before,
+    .self-nobles-scroll.has-left::before {
+        opacity: 1;
+    }
+
+    .players-scroll.has-right::after,
+    .nobles-scroll.has-right::after,
+    .self-nobles-scroll.has-right::after {
+        opacity: 1;
+    }
+
+    .players {
+        display: flex;
+        gap: 14px;
+    }
+
+    /* More than one player: each takes 2/3 width and the row scrolls horizontally */
+
+    .players:has(> .player:nth-child(2)) {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scroll-snap-type: x proximity;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .players:has(> .player:nth-child(2))::-webkit-scrollbar {
+        display: none;
+    }
+
+    .players:has(> .player:nth-child(2)) > .player {
+        flex: 0 0 56%;
+        scroll-snap-align: start;
+    }
+
+    .player {
+        flex: 1;
+        min-width: 0;
+        background: #2b313b;
+        border-radius: 12px;
+        padding: 9px 11px 16px;
+        border: 1px solid transparent;
+        --empty-token-bg: #2b313b;
+        color: #cfcabd;
+    }
+
+    .player--active {
+        border-color: var(--gem-red);
+    }
+
+    .player-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .player-name {
+        font-size: 12px;
+        color: #c8ccd4;
+        font-weight: 500;
+    }
+
+    .player-score {
+        font-size: 18px;
+        font-weight: 500;
+        color: #f2f0ea;
+    }
+
+    .player-label {
+        font-size: 10px;
+        color: #6f7480;
+        margin-top: 1px;
+    }
+
+    /* Opponent summary: per-color card + overlapping token, plus nobles */
+
+    .player-gems {
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        margin-top: 10px;
+    }
+
+    .pg-col {
+        position: relative;
+        flex: 1;
+    }
+
+    .pg-card {
+        height: 44px;
+        border-radius: 6px;
+        display: flex;
+        align-items: flex-start;
+        justify-content: flex-end;
+        padding: 4px 6px 0 0;
+        font-size: 16px;
+        font-weight: 600;
+    }
+
+    .pg-noble {
+        flex: 0 0 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #c8ccd4;
+        margin-left: 2px;
+    }
+
+    .pg-noble-diamond {
+        width: 14px;
+        height: 14px;
+        border-radius: 2px;
+        background: var(--gem-gold);
+        transform: rotate(45deg);
+    }
+
+    /* Player owns no nobles — dim the indicator */
+
+    .pg-noble--none {
+        color: #5a5e68;
+    }
+
+    .pg-noble--none .pg-noble-diamond {
+        background: none;
+        box-shadow: inset 0 0 0 1.5px #3a3f4a;
+    }
+
+    /* Section labels */
+
+    .section-label {
+        font-size: 10px;
+        color: #6f7480;
+        letter-spacing: 1px;
+        padding: 0 4px 6px;
+    }
+
+    /* Bank */
+
+    .bank {
+        display: flex;
+        justify-content: center;
+        gap: 14px;
+        margin-bottom: 10px;
+        padding: 4px 8px;
+    }
+
+    /* Gem chips */
+
+    .gem {
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        display: inline-block;
+    }
+
+    .gem--white {
+        background: var(--gem-white);
+    }
+
+    .gem--blue {
+        background: var(--gem-blue);
+    }
+
+    .gem--green {
+        background: var(--gem-green);
+    }
+
+    .gem--red {
+        background: var(--gem-red);
+    }
+
+    .gem--brown {
+        background: var(--gem-brown);
+        border: 1px solid var(--gem-brown-border);
+    }
+
+    /* Gold is round and a touch smaller; all other gems use the base .gem size. */
+
+    .gem--gold {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--gem-gold);
+    }
+
+    /* Nobles */
+
+    .nobles-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 4px 6px;
+    }
+
+    .nobles-label {
+        font-size: 10px;
+        color: #6f7480;
+        letter-spacing: 1px;
+    }
+
+    .nobles-meta {
+        font-size: 10px;
+        color: #6f7480;
+    }
+
+    .nobles-scroll {
+        position: relative;
+        margin-bottom: 16px;
+    }
+
+    .nobles {
+        display: flex;
+        flex-wrap: nowrap;
+        justify-content: safe center;
+        gap: 7px;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .nobles::-webkit-scrollbar {
+        display: none;
+    }
+
+    .noble {
+        /* 125% of a deck card's width (deck = 4 across the row with 7px gaps) */
+        flex: 0 0 calc((100% - 21px) / 4 * 1.25);
+        min-width: 0;
+        height: 62px;
+        background-color: #2b313b;
+        border-radius: 10px;
+        display: flex;
+        flex-flow: column wrap;
+        align-items: flex-start;
+        align-content: flex-start;
+        justify-content: flex-end;
+        gap: 5px 12px;
+        padding: 8px 10px;
+    }
+
+    .noble-cost {
+        display: flex;
+        align-items: center;
+        gap: 3px;
+    }
+
+    .noble-cost-count {
+        font-size: 16px;
+        color: #cfcabd;
+    }
+
+    /* Card rows */
+
+    .card-row {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-bottom: 8px;
+    }
+
+    .card-row--last {
+        margin-bottom: 8px;
+    }
+
+    .deck {
+        flex: 0 0 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+    }
+
+    .deck--t1 {
+        background: transparent;
+    }
+
+    .deck--t2 {
+        background: transparent;
+    }
+
+    .deck--t3 {
+        background: transparent;
+        gap: 0;
+    }
+
+    .deck-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+
+    .deck--t1 .deck-dot {
+        background: rgba(217, 180, 74, 0.6);
+    }
+
+    .deck--t2 .deck-dot {
+        background: rgba(184, 147, 47, 0.6);
+    }
+
+    .deck--t3 .deck-dot {
+        background: rgba(138, 111, 31, 0.6);
+    }
+
+    .cards {
+        flex: 1;
+        display: flex;
+        gap: 7px;
+    }
+
+    .card {
+        flex: 1;
+        aspect-ratio: 3 / 3.5;
+        border-radius: 11px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        cursor: pointer;
+        transition:
+            transform 0.18s ease,
+            box-shadow 0.18s ease;
+        background-color: #333a45;
+        border: 0.5px solid #424956;
+
+        /* Each gem colour gets its own background texture */
+
+        &.is-lifted {
+            position: relative;
+            z-index: 60;
+            transform: translateY(-10px) scale(1.06);
+            box-shadow: 0 12px 26px rgba(0, 0, 0, 0.6);
+        }
+    }
+
+    /* Toast notification at the top of the page */
+
+    .toast {
+        position: fixed;
+        top: 14px;
+        left: 50%;
+        z-index: 100;
+        max-width: calc(100% - 32px);
+        padding: 11px 16px;
+        border-radius: 11px;
+        background: #2b313b;
+        border: 0.5px solid #3a414d;
+        color: #f2f0ea;
+        font-size: 13px;
+        font-weight: 600;
+        text-align: center;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        transform: translateX(-50%) translateY(-14px);
+        transition:
+            opacity 0.2s ease,
+            transform 0.2s ease,
+            visibility 0.2s;
+    }
+
+    .toast.is-open {
+        opacity: 1;
+        visibility: visible;
+        transform: translateX(-50%) translateY(0);
+    }
+
+    /* Card the player can't buy or reserve — a little shake */
+
+    .card.card-shake,
+    .shake {
+        animation: card-shake 0.4s ease;
+    }
+
+    .card-top {
+        flex: 0 0 32px;
+        display: flex;
+        align-items: center;
+        padding: 0 9px;
+        font-size: 20px;
+        font-weight: 700;
+        line-height: 1;
+        border-radius: 11px 11px 0 0;
+    }
+
+    /* The brown chip's outline is for small tokens; the solid card header,
+       which fills its whole width, shouldn't carry it. */
+    .card-top.fill {
+        border: none;
+    }
+
+    .card-cost {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-flow: row wrap;
+        align-content: flex-end;
+        justify-content: flex-start;
+        gap: 2px 7px;
+        padding: 6px 8px 8px;
+        overflow: hidden;
+    }
+
+    .cost {
+        font-size: 15px;
+        font-weight: 600;
+        line-height: 1.35;
+    }
+
+    /* Clear delineation between the board and your own gems */
+
+    .board-break {
+        height: 0.5px;
+        margin: 14px 8px 18px;
+        background: linear-gradient(to right, transparent, #3a3f4a 20%, #3a3f4a 80%, transparent);
+    }
+
+    /* Current player's gems — same layout as opponents */
+
+    .player-gems--self {
+        margin-top: 0;
+        padding: 0 6px;
+        gap: 13px;
+    }
+
+    .player-gems .pg-card {
+        height: 48px;
+        font-size: 20px;
+        padding-right: 10px;
+    }
+
+    .player-gems--self .pg-noble {
+        font-size: 24px;
+    }
+
+    /* Round token chip shared by the bank, the return prompt and player trays.
+     The <Token> component emits `token <color> <size>` (and `empty` when count
+     is 0); size is `sm` (32px) or `lg` (45px). Positioning/selection effects are
+     passed in via the `style` prop at the call site. */
+
+    .token {
+        background: var(--empty-token-bg);
+        box-sizing: border-box;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        transition:
+            transform 0.15s ease,
+            box-shadow 0.15s ease;
+
+        &.sm {
+            width: 32px;
+            height: 32px;
+            font-size: 19px;
+        }
+
+        &.lg {
+            width: 45px;
+            height: 45px;
+            font-size: 21px;
+        }
+    }
+
+    /* Card action menu (Buy / Reserve) */
+
+    .backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(7, 8, 10, 0.72);
+        backdrop-filter: blur(0);
+        -webkit-backdrop-filter: blur(0);
+        opacity: 0;
+        visibility: hidden;
+        transition:
+            opacity 0.5s ease,
+            backdrop-filter 0.5s ease,
+            -webkit-backdrop-filter 0.5s ease;
+        z-index: 50;
+    }
+
+    .backdrop.is-open {
+        opacity: 1;
+        visibility: visible;
+        backdrop-filter: blur(3px);
+        -webkit-backdrop-filter: blur(3px);
+    }
+
+    .card-popup {
+        position: fixed;
+        z-index: 70;
+        display: flex;
+        gap: 8px;
+        padding: 6px;
+        background: #232730;
+        border: 0.5px solid #3a3f4a;
+        border-radius: 13px;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55);
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(4px);
+        transition:
+            opacity 0.15s ease,
+            transform 0.15s ease;
+    }
+
+    .card-popup.is-open {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+    }
+
+    .card-action {
+        border: none;
+        border-radius: 9px;
+        padding: 9px 18px;
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .card-action--buy {
+        background: var(--gem-gold);
+        color: #2c2104;
+    }
+
+    .card-action--reserve {
+        background: #353a45;
+        color: #e7e3d8;
+    }
+
+    /* Take-tokens confirmation */
+
+    .token-confirm {
+        position: fixed;
+        z-index: 70;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 12px 10px 16px;
+        border-radius: 14px;
+        background: #2b313b;
+        border: 0.5px solid #3a414d;
+        box-shadow: 0 14px 32px rgba(0, 0, 0, 0.6);
+        opacity: 0;
+        visibility: hidden;
+        transform: translateY(4px);
+        transition:
+            opacity 0.15s ease,
+            transform 0.15s ease;
+    }
+
+    .token-confirm.is-open {
+        opacity: 1;
+        visibility: visible;
+        transform: translateY(0);
+    }
+
+    /* Return view: column layout, padded to match the board bank. */
+    .token-confirm--return {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        padding-left: 8px;
+        padding-right: 8px;
+    }
+
+    /* Close button anchored to the top-right corner of the return modal. */
+    .token-confirm--return .token-x {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 30px;
+        height: 30px;
+        font-size: 17px;
+    }
+
+    .token-confirm--return .token-summary {
+        justify-content: center;
+        padding: 0 34px;
+    }
+
+    /* Fixed 45px return tokens, matching the bank token size. */
+    .token-confirm--return .bank {
+        justify-content: center;
+    }
+
+    .token-summary {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #e7e3d8;
+        white-space: nowrap;
+    }
+
+    .token-btn {
+        border: none;
+        border-radius: 10px;
+        padding: 11px 14px;
+        font-family: inherit;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+
+    .token-btn--confirm {
+        background: var(--gem-gold);
+        color: #2c2104;
+        margin-left: 10px;
+    }
+
+    .token-btn--cancel {
+        background: #353a45;
+        color: #e7e3d8;
+        padding: 0;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        font-size: 19px;
+        line-height: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Owned noble card in a player's stack */
+
+    .owned-noble {
+        flex: 0 0 30px;
+        height: 44px;
+        margin-left: 3px;
+        border-radius: 6px;
+        background: linear-gradient(155deg, #e3c463, #a9842a);
+        border: 1px solid #efd882;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #3a2c06;
+        font-size: 15px;
+        font-weight: 700;
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.35);
+    }
+
+    .player-gems--self .owned-noble {
+        flex-basis: 40px;
+        height: 52px;
+        font-size: 19px;
+    }
+
+    /* Noble owned by the current player, shown under their stack */
+
+    .self-nobles-scroll {
+        position: relative;
+        margin-top: 16px;
+    }
+
+    .self-nobles {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 0 6px;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        scrollbar-width: none;
+    }
+
+    .self-nobles::-webkit-scrollbar {
+        display: none;
+    }
+
+    .self-nobles .noble {
+        margin-left: auto; /* float nobles to the right when there's room */
+    }
+
+    /* Reserved cards, to the left of the player's nobles */
+
+    .reserved {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 40px;
+    }
+
+    .reserved-card {
+        flex: 0 0 auto;
+        width: 46px;
+        height: 62px;
+        border-radius: 6px;
+        background: #2b313b;
+        border: 0.5px solid #3a414d;
+        overflow: hidden;
+        cursor: pointer;
+    }
+
+    .reserved-card-top {
+        height: 22px;
+        border: none;
+        display: flex;
+        align-items: center;
+        padding: 0 5px;
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1;
+        border-radius: 6px 6px 0 0;
+    }
+
+    .reserved-expanded {
+        width: 100%;
+        flex: 0 0 auto;
+        border-radius: 11px;
+        overflow: hidden;
+        cursor: pointer;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7);
+    }
+
+    .reserved-buy {
+        width: 100%;
+        flex: 0 0 auto;
+    }
+
+    /* Selected-from-bank summary chips, shown inside the confirm bar */
+
+    .sel-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .sel-chip-x {
+        font-size: 1.5em;
+        line-height: 1;
+    }
+
+    .sel-dot {
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+    }
+
+    /* Card flying to its destination (buy / reserve) */
+
+    .flying-card {
+        position: fixed;
+        z-index: 90;
+        margin: 0;
+        pointer-events: none;
+        border-radius: 11px;
+        overflow: hidden;
+        transform-origin: center center;
+        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.6);
+        transition:
+            transform 0.6s cubic-bezier(0.4, 0, 0.2, 1),
+            opacity 0.6s ease;
+    }
+
+    /* Bank chip flying to its colour in the player's stack (token take) */
+
+    .flying-token {
+        position: fixed;
+        z-index: 90;
+        flex: none;
+        margin: 0;
+        pointer-events: none;
+        border-radius: 50%;
+        transform-origin: center center;
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
+    }
+
+    /* Pulse the self card when a bought card lands on it */
+
+    .pg-bump {
+        animation: pg-bump 0.3s ease;
+    }
+
+    /* Theme + layout overrides. These come last in the root, so they win over the
+     base rules above by source order. */
+
+    /* Your running token total (limit is 10). */
+    .self-tokens {
+        font-size: 12px;
+        font-weight: 600;
+        color: #cfcabd;
+    }
+
+    .self-tokens.is-full {
+        color: var(--gem-red);
+    }
+
+    /* Board sits flush under the app header (no top gutter). */
+    .screen {
+        padding: 0 0 14px;
+    }
+
+    /* Keep the bank row of fixed-size tokens vertically centered. */
+    .bank {
+        align-items: center;
+    }
+
+    /* Cards the current player can buy this turn get a gold outline drawn as an
+       overlay just inside the card, sitting on top of its content. The lifted
+       (menu-open) card keeps its elevation shadow instead. */
+    .card.can-buy:not(.is-lifted),
+    .reserved-card.can-buy {
+        position: relative;
+    }
+
+    .card.can-buy:not(.is-lifted)::before,
+    .reserved-card.can-buy::before {
+        content: '';
+        position: absolute;
+        inset: -3px;
+        border: 5px solid goldenrod;
+        pointer-events: none;
+        z-index: 5;
+        animation: buy-outline-pulse 2.6s ease-in-out infinite;
+    }
+
+    .card.can-buy:not(.is-lifted)::before,
+    .reserved-card.can-buy::before {
+        border-radius: 16px;
+    }
+}
+
+:root[data-theme='light'] .splendor-board {
+    /* Default white is too close to the light background; use a greyer tone. */
+    --gem-white: #c2bfb6;
+    --cost-white: #9b978c;
+    --empty-token-bg: #fffefa;
+}
+
+/* Light-text labels are invisible on the light background; darken them. */
+:root[data-theme='light'] .splendor-board .self-score {
+    color: #1b1e24;
+}
+
+/* Lighter gold outline for buyable cards on the light background. */
+:root[data-theme='light'] .splendor-board .card.can-buy:not(.is-lifted)::before,
+:root[data-theme='light'] .splendor-board .reserved-card.can-buy::before {
+    border-color: #e0c161;
+}

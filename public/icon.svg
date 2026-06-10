@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="96" fill="#14161b"/>
+  <g transform="translate(256 256)">
+    <path d="M0 -150 L150 -40 L90 150 L-90 150 L-150 -40 Z" fill="#d9b44a"/>
+    <path d="M0 -150 L150 -40 L0 -40 Z" fill="#e8cf86"/>
+    <path d="M0 -150 L-150 -40 L0 -40 Z" fill="#c79f3a"/>
+    <path d="M-150 -40 L-90 150 L0 -40 Z" fill="#b8932f"/>
+    <path d="M150 -40 L90 150 L0 -40 Z" fill="#caa845"/>
+    <path d="M-90 150 L90 150 L0 -40 Z" fill="#e3c463"/>
+  </g>
+</svg>

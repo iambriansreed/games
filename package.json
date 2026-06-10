@@ -1,0 +1,46 @@
+{
+    "name": "games",
+    "version": "0.1.0",
+    "private": true,
+    "type": "module",
+    "description": "Games — multiplayer board games (Splendor first) as a PWA + API on a single Railway service",
+    "main": "dist/server/api/server.js",
+    "engines": {
+        "node": "24"
+    },
+    "scripts": {
+        "dev": "concurrently -k -i \"npm:dev:client\" \"npm:dev:api\"",
+        "dev:http": "CADDY_PROXY=0 concurrently -k -i \"npm:dev:client\" \"npm:dev:api\"",
+        "dev:client": "vite",
+        "dev:api": "tsx watch --env-file-if-exists=.env.local src/api/server.ts",
+        "cert": "bash .sslcert/generate",
+        "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.api.json --noEmit",
+        "build:web": "tsc -p tsconfig.json --noEmit && vite build",
+        "build:api": "tsc -p tsconfig.api.json && node scripts/postbuild-api.mjs",
+        "build": "npm run build:web && npm run build:api",
+        "start": "node dist/server/api/server.js",
+        "preview": "vite preview"
+    },
+    "dependencies": {
+        "express": "^4.21.2",
+        "google-auth-library": "^9.15.0",
+        "pg": "^8.13.1",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+        "socket.io": "^4.8.1",
+        "socket.io-client": "^4.8.1"
+    },
+    "devDependencies": {
+        "@types/express": "^4.17.21",
+        "@types/node": "^22.10.0",
+        "@types/pg": "^8.11.10",
+        "@types/react": "^18.3.12",
+        "@types/react-dom": "^18.3.1",
+        "@vitejs/plugin-react": "^4.3.4",
+        "concurrently": "^9.1.0",
+        "tsx": "^4.19.2",
+        "typescript": "^5.6.3",
+        "vite": "^5.4.11",
+        "vite-plugin-pwa": "^0.21.1"
+    }
+}

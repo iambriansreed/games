@@ -1,0 +1,8 @@
+# Local dev TLS termination for https://local.games.iambrian.com.
+# Caddy serves the mkcert-issued (locally-trusted) cert and reverse-proxies to
+# the Vite dev server, forwarding WebSocket upgrades (HMR + socket.io) too.
+# Started automatically by the caddy plugin in vite.config.ts (`npm run dev`).
+local.games.iambrian.com {
+	tls .sslcert/cert.pem .sslcert/key.pem
+	reverse_proxy 127.0.0.1:4567
+}
