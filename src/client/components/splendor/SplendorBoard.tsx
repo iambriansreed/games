@@ -19,6 +19,8 @@ import {
     SplendorState,
 } from '../../../shared/splendor/types';
 import { bonuses, canAfford, isHidden, TOKEN_LIMIT, totalTokens } from './logic';
+import { api } from '../../api';
+import { navigate } from '../../router';
 
 import './splendor.css';
 
@@ -78,6 +80,11 @@ export function SplendorBoard({
         w: number;
         h: number;
     } | null>(null);
+    // Bumped to (re)play the celebratory rainbow when a player first holds one
+    // card of every colour; `rainbowOn` clears it after the animation.
+    const [rainbowKey, setRainbowKey] = useState(0);
+    const [rainbowOn, setRainbowOn] = useState(false);
+    const rainbowTimer = useRef<number>();
 
     const playersScrollRef = useRef<HTMLDivElement>(null);
     const noblesScrollRef = useRef<HTMLDivElement>(null);
@@ -206,6 +213,219 @@ export function SplendorBoard({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tokenSig]);
 
+    // Animate a noble flying from the board to its new owner's stack. The board
+    // node is gone by the time we'd want its position, so each commit snapshots
+    // the on-table noble rects; the next commit, any id that vanished and is now
+    // owned flies from its last-seen spot to that seat's noble area. Works for
+    // every seat, driven by synced state.
+    const nobleSnapRef = useRef<Map<string, DOMRect>>(new Map());
+    useLayoutEffect(() => {
+        const screen = screenRef.current;
+        if (!screen) return;
+        const next = new Map<string, DOMRect>();
+        screen.querySelectorAll<HTMLElement>('.nobles .noble[data-noble-id]').forEach((el) => {
+            next.set(el.dataset.nobleId as string, el.getBoundingClientRect());
+        });
+        const prev = nobleSnapRef.current;
+        nobleSnapRef.current = next;
+        if (prev.size === 0) return; // first paint: seed only
+        prev.forEach((rect, id) => {
+            if (next.has(id)) return; // still on the table
+            const seat = state.players.findIndex((p) => p.nobles.some((n) => n.id === id));
+            if (seat < 0) return;
+            const pts = state.players[seat].nobles.find((n) => n.id === id)?.points ?? 3;
+            flyNoble(rect, seat, pts);
+        });
+    });
+
+    // Animate an *opponent's* card moves the same diff-driven way: snapshot every
+    // face-up board card's rect each commit, then on the next commit any board
+    // card that left the table flies to wherever it went. Your own buys/reserves
+    // are already animated by the click handlers, so this skips your seat.
+    //   • Buy   — the vanished card's id reappears in a player's collection; it
+    //             flies into that seat's colour column.
+    //   • Reserve — the card vanished but is owned by no one (opponents' reserved
+    //             cards are redacted to a HiddenCard with a fresh id). It flies to
+    //             that seat's reserved pile; the seat is the one whose reserved
+    //             count grew. Deck reserves have no board source, so they don't fly.
+    const cardSnapRef = useRef<Map<string, { rect: DOMRect; card: SplendorCard }>>(new Map());
+    const prevHoldingsRef = useRef<{ cards: Set<string>; reserved: number }[] | null>(null);
+    useLayoutEffect(() => {
+        const screen = screenRef.current;
+        if (!screen) return;
+        const boardById = new Map<string, SplendorCard>();
+        for (const lvl of LEVELS) for (const c of state.board[lvl]) if (c) boardById.set(c.id, c);
+        const next = new Map<string, { rect: DOMRect; card: SplendorCard }>();
+        screen.querySelectorAll<HTMLElement>('.card-row .cards .card[data-card-id]').forEach((el) => {
+            const card = boardById.get(el.dataset.cardId as string);
+            if (card) next.set(card.id, { rect: el.getBoundingClientRect(), card });
+        });
+        const prevSnap = cardSnapRef.current;
+        cardSnapRef.current = next;
+
+        const holdings = state.players.map((p) => ({
+            cards: new Set(p.cards.map((c) => c.id)),
+            reserved: p.reserved.length,
+        }));
+        const prevHold = prevHoldingsRef.current;
+        prevHoldingsRef.current = holdings;
+        if (prevSnap.size === 0 || !prevHold) return; // first paint: seed only
+
+        // Board cards that left the table since the last commit.
+        const vanished = new Map<string, { rect: DOMRect; card: SplendorCard }>();
+        prevSnap.forEach((v, id) => {
+            if (!next.has(id)) vanished.set(id, v);
+        });
+
+        // Opponent buys.
+        state.players.forEach((p, seat) => {
+            if (seat === mySeat) return;
+            const before = prevHold[seat]?.cards;
+            if (!before) return;
+            for (const c of p.cards) {
+                if (before.has(c.id)) continue; // not newly bought
+                const from = vanished.get(c.id);
+                vanished.delete(c.id); // consume so a reserve below doesn't reuse it
+                // Bought off the board → fly from its slot; bought from the player's
+                // own reserve pile → fly from there instead.
+                const rect = from?.rect ?? oppReservedArea(seat)?.getBoundingClientRect();
+                if (!rect) continue;
+                flyCardNode(buildCardNode(c), rect, oppColumn(seat, c.color));
+            }
+        });
+
+        // Opponent reserves — any board card left over after the buys above.
+        state.players.forEach((p, seat) => {
+            if (seat === mySeat) return;
+            let grew = p.reserved.length - (prevHold[seat]?.reserved ?? p.reserved.length);
+            while (grew-- > 0) {
+                const entry = vanished.entries().next().value as
+                    | [string, { rect: DOMRect; card: SplendorCard }]
+                    | undefined;
+                if (!entry) break; // reserved from the deck — no on-board source to fly
+                vanished.delete(entry[0]);
+                flyCardNode(buildCardNode(entry[1].card), entry[1].rect, oppReservedArea(seat));
+            }
+        });
+    });
+
+    // A seat's colour column (where a bought card's bonus lands) and reserved pile,
+    // the destinations for the opponent card flights above.
+    function oppColumn(seat: number, color: CardColor): HTMLElement | null {
+        return (
+            screenRef.current?.querySelector<HTMLElement>(
+                `.player-gems[data-seat="${seat}"] .pg-col.${color} .pg-card`,
+            ) ?? null
+        );
+    }
+    function oppReservedArea(seat: number): HTMLElement | null {
+        return screenRef.current?.querySelector<HTMLElement>(`.player[data-seat="${seat}"] .opp-reserved`) ?? null;
+    }
+
+    // A bare card face (colour + prestige) to fly when there's no live board node
+    // to clone — i.e. an opponent's move, where the card was synced, not clicked.
+    function buildCardNode(card: SplendorCard): HTMLElement {
+        const el = document.createElement('div');
+        el.className = `card ${card.color}`;
+        const top = document.createElement('div');
+        top.className = 'card-top fill';
+        top.textContent = card.points ? String(card.points) : ' ';
+        el.appendChild(top);
+        return el;
+    }
+
+    // Build and fly a gold noble tile from a board position to a seat's stack.
+    function flyNoble(from: DOMRect, seat: number, points: number) {
+        const layer = flyLayerRef.current;
+        const screen = screenRef.current;
+        if (!layer || !screen) return;
+        const target =
+            seat === mySeat
+                ? screen.querySelector<HTMLElement>('.self-nobles')
+                : screen.querySelector<HTMLElement>(`.player[data-seat="${seat}"] .opp-nobles`);
+        if (!target) return;
+        const t = target.getBoundingClientRect();
+        const tile = document.createElement('div');
+        tile.className = 'flying-noble';
+        tile.textContent = String(points);
+        tile.style.left = `${from.left}px`;
+        tile.style.top = `${from.top}px`;
+        tile.style.width = `${from.width}px`;
+        tile.style.height = `${from.height}px`;
+        layer.appendChild(tile);
+        tile.getBoundingClientRect(); // reflow
+
+        let scale = Math.min(0.55, (t.height || 26) / from.height);
+        if (!isFinite(scale) || scale <= 0) scale = 0.4;
+        const dx = t.left + t.width / 2 - (from.left + from.width / 2);
+        const dy = t.top + t.height / 2 - (from.top + from.height / 2);
+        const mid = (scale + 1) / 2;
+        const anim = tile.animate(
+            [
+                { transform: 'translate(0,0) scale(1) rotate(0deg)', opacity: 1, offset: 0 },
+                {
+                    transform: `translate(${dx * 0.5}px, ${dy * 0.5 - 34}px) scale(${mid}) rotate(9deg)`,
+                    opacity: 1,
+                    offset: 0.55,
+                },
+                {
+                    transform: `translate(${dx}px, ${dy}px) scale(${scale}) rotate(0deg)`,
+                    opacity: 1,
+                    offset: 1,
+                },
+            ],
+            { duration: 850, easing: 'cubic-bezier(0.31, 0.78, 0.32, 1)', fill: 'forwards' },
+        );
+        const cleanup = () => tile.remove();
+        anim.onfinish = () => {
+            target.animate(
+                [{ transform: 'scale(1)' }, { transform: 'scale(1.18)' }, { transform: 'scale(1)' }],
+                { duration: 280, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' },
+            );
+            const fade = tile.animate([{ opacity: 1 }, { opacity: 0 }], {
+                duration: 180,
+                delay: 60,
+                fill: 'forwards',
+            });
+            fade.onfinish = cleanup;
+        };
+        setTimeout(cleanup, 1500);
+    }
+
+    // Rainbow! Fire the celebratory arc the first time any player holds at least
+    // one card of every colour. Diffs against the previous render so it plays
+    // once per player, on the move that completes the set.
+    const rainbowSig = state.players
+        .map((p) => (CARD_COLORS.every((c) => bonuses(p)[c] >= 1) ? '1' : '0'))
+        .join('');
+    const prevRainbowRef = useRef<boolean[] | null>(null);
+    useEffect(() => {
+        const curr = state.players.map((p) => CARD_COLORS.every((c) => bonuses(p)[c] >= 1));
+        const prev = prevRainbowRef.current;
+        prevRainbowRef.current = curr;
+        if (!prev) return; // seed only
+        curr.forEach((has, seat) => {
+            if (has && !prev[seat]) {
+                setRainbowKey((k) => k + 1);
+                setRainbowOn(true);
+                window.clearTimeout(rainbowTimer.current);
+                rainbowTimer.current = window.setTimeout(() => setRainbowOn(false), 6500);
+            }
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rainbowSig]);
+
+    // Announce each turn with a toast (your turn, or whose it is). Seeds on the
+    // first render so a reload mid-turn doesn't fire spuriously.
+    const prevCurrentRef = useRef<number | null>(null);
+    useEffect(() => {
+        const prev = prevCurrentRef.current;
+        prevCurrentRef.current = state.current;
+        if (state.winnerId || prev === null || prev === state.current) return;
+        onToast(isMyTurn ? 'Your turn' : `${seatName(state.current)}’s turn`);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [state.current]);
+
     // Brief shake to signal a card the player can neither buy nor reserve.
     function shake(el: HTMLElement) {
         el.classList.remove('card-shake');
@@ -229,39 +449,58 @@ export function SplendorBoard({
         setMenu({ card, source, rect: el.getBoundingClientRect(), el });
     }
 
-    // Fly a clone of a board card to the reserved area, melting into the new chip
+    // Fly a clone of a board card to a target (the reserved area on reserve, or
+    // your colour column on buy), melting into the destination on arrival
     // (ported from the original mockup's flyCardTo).
     function flyCard(sourceEl: HTMLElement, targetEl: Element | null) {
+        flyCardNode(sourceEl.cloneNode(true) as HTMLElement, sourceEl.getBoundingClientRect(), targetEl);
+    }
+
+    // Fly an already-built node from `from` to `targetEl`, melting in on arrival.
+    // Used both by flyCard (a clone of the clicked board card) and by the opponent
+    // diff effect (a freshly built card face, since the real node is synced away).
+    function flyCardNode(node: HTMLElement, from: DOMRect, targetEl: Element | null) {
         const layer = flyLayerRef.current;
         if (!layer || !targetEl) return;
-        const s = sourceEl.getBoundingClientRect();
         const t = targetEl.getBoundingClientRect();
-        const clone = sourceEl.cloneNode(true) as HTMLElement;
-        clone.classList.remove('is-lifted');
-        clone.classList.add('flying-card');
-        clone.style.left = `${s.left}px`;
-        clone.style.top = `${s.top}px`;
-        clone.style.width = `${s.width}px`;
-        clone.style.height = `${s.height}px`;
-        layer.appendChild(clone);
-        clone.getBoundingClientRect(); // force reflow before transition
+        node.classList.remove('is-lifted');
+        node.classList.add('flying-card');
+        node.style.left = `${from.left}px`;
+        node.style.top = `${from.top}px`;
+        node.style.width = `${from.width}px`;
+        node.style.height = `${from.height}px`;
+        layer.appendChild(node);
+        node.getBoundingClientRect(); // force reflow before transition
 
-        let scale = Math.min(t.width / s.width, t.height / s.height);
+        let scale = Math.min(t.width / from.width, t.height / from.height);
         if (!isFinite(scale) || scale <= 0) scale = 0.2;
-        const dx = t.left + t.width / 2 - (s.left + s.width / 2);
-        const dy = t.top + t.height / 2 - (s.top + s.height / 2);
-        clone.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+        const dx = t.left + t.width / 2 - (from.left + from.width / 2);
+        const dy = t.top + t.height / 2 - (from.top + from.height / 2);
+        node.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`;
 
         let done = false;
         const finish = () => {
             if (done) return;
             done = true;
-            clone.style.transition = 'opacity 0.16s ease';
-            clone.style.opacity = '0';
-            setTimeout(() => clone.remove(), 170);
+            // Bump the destination so the card visibly lands in it.
+            (targetEl as HTMLElement).animate?.(
+                [{ transform: 'scale(1)' }, { transform: 'scale(1.18)' }, { transform: 'scale(1)' }],
+                { duration: 280, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' },
+            );
+            node.style.transition = 'opacity 0.16s ease';
+            node.style.opacity = '0';
+            setTimeout(() => node.remove(), 170);
         };
-        clone.addEventListener('transitionend', finish, { once: true });
+        node.addEventListener('transitionend', finish, { once: true });
         setTimeout(finish, 700);
+    }
+
+    // Target the colour column in your own tray (where a bought card's bonus
+    // lands), so a purchase can fly there.
+    function selfColumn(color: CardColor): HTMLElement | null {
+        const screen = screenRef.current;
+        if (!screen) return null;
+        return screen.querySelector<HTMLElement>(`.player-gems--self .pg-col.${color} .pg-card`);
     }
 
     // Fly each gained chip from its bank slot to the matching colour in the given
@@ -375,19 +614,27 @@ export function SplendorBoard({
 
     const opponents = state.players.map((p, seat) => ({ p, seat })).filter(({ seat }) => seat !== mySeat);
     const winnerName = state.winnerId ? detail.players.find((p) => p.userId === state.winnerId) : null;
-    const turnStatus = state.winnerId
-        ? winnerName
-            ? `${winnerName.userId === me.id ? 'You' : winnerName.name} won`
-            : 'Game over'
-        : mustChooseNoble
-          ? 'Choose a noble'
-          : isMyTurn
-            ? 'Your turn'
-            : `${seatName(state.current)}’s turn`;
+
+    // End-of-game result, from the local player's vantage point.
+    const iWon = state.winnerId != null && myPlayer != null && state.winnerId === myPlayer.id;
+    const iLost = state.winnerId != null && myPlayer != null && state.winnerId !== myPlayer.id;
+    const winnerSeat = state.winnerId ? state.players.findIndex((p) => p.id === state.winnerId) : -1;
+    const winnerPoints = winnerSeat >= 0 ? state.players[winnerSeat].points : 0;
+    const lossMargin = myPlayer ? Math.max(0, winnerPoints - myPlayer.points) : 0;
+
+    async function playAgain() {
+        try {
+            const next = await api.rematch(detail.id);
+            navigate(`/g/${next.id}`);
+        } catch {
+            onToast('Could not start a rematch');
+        }
+    }
 
     return (
-        <div className="splendor-board">
+        <div className={`splendor-board ${iLost ? 'board-lost' : ''}`}>
             <div className="fly-layer" ref={flyLayerRef} />
+            {rainbowOn && <RainbowArc key={rainbowKey} />}
             <div className="device">
                 <div className="screen" ref={screenRef}>
                     {/* Opponents */}
@@ -427,16 +674,23 @@ export function SplendorBoard({
                         })}
                     </div>
 
+                    {/* Final-round warning, pinned under the bank */}
+                    {!state.winnerId && state.finalRound && (
+                        <div className="status-bar">
+                            <div className="final-banner">Last round — everyone gets one final turn</div>
+                        </div>
+                    )}
+
                     {/* Nobles */}
                     {state.nobles.length > 0 && (
                         <div className="nobles-scroll" ref={noblesScrollRef}>
                             <div className="nobles">
                                 {state.nobles.map((n) => (
-                                    <div className="noble" key={n.id}>
+                                    <div className="noble" key={n.id} data-noble-id={n.id}>
                                         {COLORS.filter((c) => n.cost[c]).map((c) => (
                                             <span className={`noble-cost ${c}`} key={c}>
                                                 <span className="gem fill" />
-                                                <span>{n.cost[c]}</span>
+                                                <span className="noble-cost-count">{n.cost[c]}</span>
                                             </span>
                                         ))}
                                     </div>
@@ -484,11 +738,8 @@ export function SplendorBoard({
                                             totalTokens(myPlayer) >= TOKEN_LIMIT ? 'is-full' : ''
                                         }`}
                                     >
-                                        {totalTokens(myPlayer)} tokens
+                                        {totalTokens(myPlayer)} token{totalTokens(myPlayer) === 1 ? '' : 's'}
                                     </span>
-                                    {(state.winnerId || mustChooseNoble) && (
-                                        <span className="self-turn">{turnStatus}</span>
-                                    )}
                                 </div>
                                 <span className="self-score">{myPlayer.points}</span>
                             </div>
@@ -644,7 +895,10 @@ export function SplendorBoard({
                         {myPlayer && canAfford(myPlayer, menu.card) && (
                             <button
                                 className="card-action card-action--buy"
-                                onClick={() => submit({ type: 'buy', cardId: menu.card.id }, [])}
+                                onClick={() => {
+                                    flyCard(menu.el, selfColumn(menu.card.color));
+                                    submit({ type: 'buy', cardId: menu.card.id }, []);
+                                }}
                             >
                                 Buy
                             </button>
@@ -688,7 +942,11 @@ export function SplendorBoard({
                         {myPlayer && canAct && canAfford(myPlayer, reservedView.card) && (
                             <button
                                 className="card-action card-action--buy reserved-buy"
-                                onClick={() => submit({ type: 'buy', cardId: reservedView.card.id }, [])}
+                                onClick={() => {
+                                    const src = reservedPopRef.current?.querySelector<HTMLElement>('.card');
+                                    if (src) flyCard(src, selfColumn(reservedView.card.color));
+                                    submit({ type: 'buy', cardId: reservedView.card.id }, []);
+                                }}
                             >
                                 Buy
                             </button>
@@ -744,12 +1002,186 @@ export function SplendorBoard({
                     </div>
                 </>
             )}
+
+            {/* Game over — celebrate the winner, mourn for the rest */}
+            {state.winnerId && (
+                <div className={`game-over ${iLost ? 'game-over--loss' : 'game-over--win'}`}>
+                    {!iLost && <ConfettiCannons />}
+                    <div className="game-over-card">
+                        <h2 className="game-over-title">
+                            {iWon ? 'You won!' : iLost ? 'You lost' : 'Game over'}
+                        </h2>
+                        <p className="game-over-sub">
+                            {iWon
+                                ? `Victory with ${winnerPoints} points`
+                                : iLost
+                                  ? `You lost to ${winnerName?.name || 'the winner'} by ${lossMargin} point${lossMargin === 1 ? '' : 's'}`
+                                  : `${winnerName?.name || 'A player'} won with ${winnerPoints} points`}
+                        </p>
+                        <div className="game-over-actions">
+                            {myPlayer && (
+                                <button className="token-btn token-btn--confirm" onClick={playAgain}>
+                                    Play again
+                                </button>
+                            )}
+                            <button className="token-btn game-over-leave" onClick={() => navigate('/')}>
+                                Leave
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
 
 function gemVar(g: Gem): string {
     return `var(--gem-${g})`;
+}
+
+/**
+ * A celebratory rainbow that draws from the lower-left, arches over the top of
+ * the screen, and lands at the lower-right — seven parallel colour bands that
+ * sweep in, hold, then fade. Played when a player first owns one card of every
+ * colour. Full-viewport, pointer-transparent, and self-removing via its parent.
+ */
+function RainbowArc() {
+    const bands = ['#e0413b', '#e98c2e', '#e9c83a', '#4f9d6b', '#5a8fd6', '#5b6bd6', '#9b59c6'];
+    return (
+        <svg className="rainbow-arc" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMax slice" aria-hidden>
+            {bands.map((color, i) => (
+                <path key={color} d={`M -40 660 Q 500 ${-360 + i * 32} 1040 660`} stroke={color} />
+            ))}
+        </svg>
+    );
+}
+
+/**
+ * Two confetti cannons firing from the bottom corners toward the centre, in a
+ * few staggered bursts. Each bit is a small div tossed along an arc with the
+ * Web Animations API, then removed. Honours reduced-motion (renders nothing).
+ */
+function ConfettiCannons() {
+    const hostRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        const host = hostRef.current;
+        if (!host) return;
+        if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+        const colors = ['#e0413b', '#e98c2e', '#e9c83a', '#4f9d6b', '#5a8fd6', '#9b59c6', '#f2f0ea'];
+        const W = window.innerWidth;
+        const H = window.innerHeight;
+        const timers: number[] = [];
+
+        // One spurt fires a cone of confetti, shooting inward, from a point just
+        // off the screen. The origin is placed at fraction `t` (0→1) along the
+        // lower perimeter — left side (lower half) → bottom → right side (lower
+        // half) — so spurts spread evenly across the bottom and sides.
+        const off = 70; // how far past the edge it starts
+        const sideH = H * 0.5; // active height of each side (lower half)
+        const perimeter = sideH + W + sideH;
+        const spurt = (count: number, t: number) => {
+            const d = t * perimeter;
+            let ox: number;
+            let oy: number;
+            let inward: number; // +1 to fly right, -1 to fly left
+            if (d < sideH) {
+                // Left side, from the bottom upward into the lower half.
+                ox = -off;
+                oy = H - 30 - (d / sideH) * sideH;
+                inward = 1;
+            } else if (d < sideH + W) {
+                // Bottom edge, left → right; shoot toward the centre.
+                ox = d - sideH;
+                oy = H + off;
+                inward = ox < W / 2 ? 1 : -1;
+            } else {
+                // Right side, from the lower half down toward the bottom.
+                ox = W + off;
+                oy = H - 30 - sideH + ((d - sideH - W) / sideH) * sideH;
+                inward = -1;
+            }
+
+            for (let i = 0; i < count; i++) {
+                const bit = document.createElement('div');
+                bit.className = 'confetti-bit';
+                const w = 5 + Math.random() * 8;
+                bit.style.width = `${w}px`;
+                bit.style.height = `${Math.max(4, w * (0.4 + Math.random() * 0.6))}px`;
+                bit.style.background = colors[(Math.random() * colors.length) | 0];
+                bit.style.left = `${ox}px`;
+                bit.style.top = `${oy}px`;
+                host.appendChild(bit);
+
+                // Burst inward + up fast, crest early, then flutter down slowly and
+                // exit past the bottom regardless of where it launched from.
+                const reach = W * (0.12 + Math.random() * 0.5);
+                const dx = inward * reach + (Math.random() - 0.5) * W * 0.14; // cone spread
+                const apexX = dx * (0.45 + Math.random() * 0.3);
+                // Up from origin, but never high enough to crest over the top edge.
+                const apex = -Math.min(H * 0.16 + Math.random() * H * 0.4, oy - 30);
+                const fall = H + 120 - oy + Math.random() * H * 0.25; // below the screen
+                const spin = (Math.random() < 0.5 ? -1 : 1) * (180 + Math.random() * 900);
+                const sway = (Math.random() < 0.5 ? -1 : 1) * (16 + Math.random() * 48);
+                const crest = 0.12 + Math.random() * 0.06; // shoots out quickly
+                const dur = 4200 + Math.random() * 3000; // long, slow descent
+                const lerpX = (t: number) => apexX + (dx - apexX) * t;
+                const anim = bit.animate(
+                    [
+                        {
+                            transform: 'translate(0px, 0px) rotate(0deg)',
+                            opacity: 1,
+                            offset: 0,
+                            easing: 'cubic-bezier(0.1, 0.75, 0.3, 1)', // explosive launch
+                        },
+                        {
+                            transform: `translate(${apexX}px, ${apex}px) rotate(${spin * 0.18}deg)`,
+                            opacity: 1,
+                            offset: crest,
+                            easing: 'ease-in-out',
+                        },
+                        {
+                            transform: `translate(${lerpX(0.4) + sway}px, ${apex + (fall - apex) * 0.4}px) rotate(${spin * 0.45}deg)`,
+                            opacity: 1,
+                            offset: crest + (1 - crest) * 0.4,
+                            easing: 'ease-in-out',
+                        },
+                        {
+                            transform: `translate(${lerpX(0.72) - sway}px, ${apex + (fall - apex) * 0.72}px) rotate(${spin * 0.75}deg)`,
+                            opacity: 1,
+                            offset: crest + (1 - crest) * 0.72,
+                            easing: 'ease-in-out',
+                        },
+                        {
+                            transform: `translate(${dx}px, ${fall}px) rotate(${spin}deg)`,
+                            opacity: 0,
+                            offset: 1,
+                        },
+                    ],
+                    { duration: dur, delay: Math.random() * 260, fill: 'forwards' },
+                );
+                anim.onfinish = () => bit.remove();
+            }
+        };
+
+        // Several spurts, evenly spread along the perimeter (one per stratified
+        // slice, jittered within it) and fired in a shuffled order over ~2s.
+        const SPURTS = 6;
+        const slices = Array.from({ length: SPURTS }, (_, k) => (k + Math.random()) / SPURTS);
+        // Shuffle so the even spread doesn't fire in a predictable sweep.
+        for (let k = slices.length - 1; k > 0; k--) {
+            const j = (Math.random() * (k + 1)) | 0;
+            [slices[k], slices[j]] = [slices[j], slices[k]];
+        }
+        slices.forEach((t, k) => {
+            timers.push(window.setTimeout(() => spurt(45 + ((Math.random() * 35) | 0), t), k * 360));
+        });
+
+        return () => {
+            timers.forEach((t) => window.clearTimeout(t));
+            host.replaceChildren();
+        };
+    }, []);
+    return <div className="confetti-layer" ref={hostRef} aria-hidden />;
 }
 
 function label(g: Gem): string {
@@ -775,6 +1207,9 @@ function flyToken(sourceEl: HTMLElement | null, targetEl: HTMLElement | null, in
     const clone = sourceEl.cloneNode(true) as HTMLElement;
     clone.classList.remove('is-selected', 'is-pair');
     clone.classList.add('flying-token');
+    // The clone copies the bank chip's number (the count *before* the move);
+    // a chip in flight should be a bare token, so drop the text.
+    clone.textContent = '';
     clone.style.left = `${s.left}px`;
     clone.style.top = `${s.top}px`;
     clone.style.width = `${s.width}px`;
@@ -792,7 +1227,7 @@ function flyToken(sourceEl: HTMLElement | null, targetEl: HTMLElement | null, in
 
     const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const delay = index * 160;
-    const safety = window.setTimeout(() => clone.remove(), delay + 1800);
+    const safety = window.setTimeout(() => clone.remove(), delay + 2900);
     const cleanup = () => {
         window.clearTimeout(safety);
         clone.remove();
@@ -810,25 +1245,62 @@ function flyToken(sourceEl: HTMLElement | null, targetEl: HTMLElement | null, in
         return;
     }
 
-    const mid = (scale + 1) / 2; // halfway size at the top of the arc
-    const lift = Math.min(46, 22 + Math.abs(dx) * 0.18); // gentle toss height
-    const spin = dx >= 0 ? 12 : -12;
+    const liftUp = 34; // how far it pops straight up before travelling
+    const spin = dx >= 0 ? 10 : -10;
+
+    // The travel leg follows a single quadratic Bézier from the lifted chip to
+    // its slot, with the control point bowed well to the right and up — so the
+    // whole path is one smooth, organic curve rather than angular segments.
+    const p0 = { x: 0, y: -liftUp };
+    const p1 = { x: dx, y: dy };
+    const dist = Math.hypot(dx, dy + liftUp);
+    const ctrl = {
+        x: (p0.x + p1.x) / 2 + (90 + dist * 0.16), // strong rightward bow
+        y: (p0.y + p1.y) / 2 - (40 + dist * 0.12), // gentle lift over the top
+    };
+    const bezier = (t: number) => {
+        const u = 1 - t;
+        return {
+            x: u * u * p0.x + 2 * u * t * ctrl.x + t * t * p1.x,
+            y: u * u * p0.y + 2 * u * t * ctrl.y + t * t * p1.y,
+        };
+    };
+    const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+
+    // Densely sample the curve so the motion reads as a continuous sweep.
+    const travelStart = 0.45;
+    const travel = [0.16, 0.34, 0.52, 0.7, 0.85, 1].map((t) => {
+        const p = bezier(t);
+        return {
+            transform: `translate(${p.x}px, ${p.y}px) scale(${lerp(1.12, scale, t)}) rotate(${lerp(spin, 0, t)}deg)`,
+            offset: travelStart + (1 - travelStart) * t,
+            easing: 'linear' as const,
+        };
+    });
 
     const flight = clone.animate(
         [
-            { transform: 'translate(0px, 0px) scale(1) rotate(0deg)', offset: 0 },
+            // 1) Pop straight up off the bank, no sideways motion yet.
             {
-                transform: `translate(${dx * 0.5}px, ${dy * 0.5 - lift}px) scale(${mid}) rotate(${spin}deg)`,
-                offset: 0.55,
+                transform: 'translate(0px, 0px) scale(1) rotate(0deg)',
+                offset: 0,
+                easing: 'cubic-bezier(0.25, 0.9, 0.3, 1)',
             },
-            // Slight overshoot, then settle into the slot.
             {
-                transform: `translate(${dx}px, ${dy}px) scale(${scale * 1.14}) rotate(0deg)`,
-                offset: 0.84,
+                transform: `translate(0px, ${-liftUp}px) scale(1.12) rotate(0deg)`,
+                offset: 0.2,
+                easing: 'linear',
             },
-            { transform: `translate(${dx}px, ${dy}px) scale(${scale}) rotate(0deg)`, offset: 1 },
+            // 2) Hold at the top for ~half a second, then ease into the curve.
+            {
+                transform: `translate(0px, ${-liftUp}px) scale(1.12) rotate(0deg)`,
+                offset: travelStart,
+                easing: 'cubic-bezier(0.45, 0, 0.5, 1)',
+            },
+            // 3) Sweep along the bowed curve into the slot.
+            ...travel,
         ],
-        { duration: 900, delay, easing: 'cubic-bezier(0.31, 0.78, 0.32, 1)', fill: 'forwards' },
+        { duration: 1700, delay, easing: 'cubic-bezier(0.31, 0.78, 0.32, 1)', fill: 'forwards' },
     );
 
     flight.onfinish = () => {
@@ -861,15 +1333,26 @@ function Card({
     return (
         <div
             className={`card ${card.color} ${lifted ? 'is-lifted' : ''} ${affordable ? 'can-buy' : ''}`}
+            data-card-id={card.id}
             onClick={onClick}
         >
             <div className="card-top fill">{card.points || ' '}</div>
             <div className="card-cost">
-                {CARD_COLORS.filter((c) => card.cost[c]).map((c) => (
-                    <span className={`cost ${c}`} key={c}>
-                        ● {card.cost[c]}
-                    </span>
-                ))}
+                {(() => {
+                    const costs = CARD_COLORS.filter((c) => card.cost[c]);
+                    const n = costs.length;
+                    return costs.map((c, idx) => {
+                        const i = idx + 1;
+                        const col = i <= 2 ? 1 : 2;
+                        const cnt = col === 1 ? Math.min(n, 2) : n - 2;
+                        const within = col === 1 ? i - 1 : i - 3;
+                        const place: CSSProperties | undefined =
+                            n <= 4 ? { gridColumn: col, gridRow: 2 - cnt + within + 1 } : undefined;
+                        return (
+                            <Token key={c} color={c} count={card.cost[c] ?? 0} size="x-sm" style={place} />
+                        );
+                    });
+                })()}
             </div>
         </div>
     );
@@ -902,13 +1385,32 @@ function Opponent({
     name: string;
     active: boolean;
 }) {
+    const reservedCount = player.reserved.length;
     return (
-        <div className={`player ${active ? 'player--active' : ''}`}>
+        <div className={`player ${active ? 'player--active' : ''}`} data-seat={seat}>
             <div className="player-row">
                 <span className="player-name">{name}</span>
                 <span className="player-score">{player.points}</span>
             </div>
             <PlayerCardsGems player={player} seat={seat} />
+            {(reservedCount > 0 || player.nobles.length > 0) && (
+                <div className="opp-extras">
+                    {reservedCount > 0 && (
+                        <div className="opp-reserved" title={`${reservedCount} reserved`}>
+                            {player.reserved.map((c) => (
+                                <span className="opp-reserved-back" key={c.id} />
+                            ))}
+                        </div>
+                    )}
+                    <div className="opp-nobles" title={`${player.nobles.length} nobles`}>
+                        {player.nobles.map((n) => (
+                            <span className="opp-noble" key={n.id}>
+                                {n.points}
+                            </span>
+                        ))}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -985,7 +1487,7 @@ export function Token({
     onClick?: MouseEventHandler<HTMLDivElement>;
     style?: CSSProperties;
     title?: string;
-    size?: 'sm' | 'lg';
+    size?: 'sm' | 'lg' | 'x-sm';
 }) {
     return (
         <div

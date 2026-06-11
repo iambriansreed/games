@@ -55,11 +55,7 @@ export const api = {
     getGame(id: string): Promise<GameDetail> {
         return request(`/api/games/${id}`);
     },
-    createGame(input: {
-        type: GameType;
-        name?: string;
-        visibility: GameVisibility;
-    }): Promise<GameDetail> {
+    createGame(input: { type: GameType; visibility: GameVisibility }): Promise<GameDetail> {
         return request('/api/games', { method: 'POST', body: JSON.stringify(input) });
     },
     joinGame(id: string): Promise<GameDetail> {
@@ -76,6 +72,9 @@ export const api = {
     },
     startGame(id: string): Promise<GameDetail> {
         return request(`/api/games/${id}/start`, { method: 'POST' });
+    },
+    rematch(id: string): Promise<GameDetail> {
+        return request(`/api/games/${id}/rematch`, { method: 'POST' });
     },
     action(id: string, action: unknown): Promise<GameDetail> {
         return request(`/api/games/${id}/action`, {

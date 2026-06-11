@@ -36,15 +36,20 @@ export function GameView({
         const onClosed = (id: string) => {
             if (id === gameId) navigate('/');
         };
+        const onRematch = (p: { from: string; to: string }) => {
+            if (p.from === gameId) navigate(`/g/${p.to}`);
+        };
         const join = () => socket.emit('game:join', gameId);
         socket.on('game:update', onUpdate);
         socket.on('game:closed', onClosed);
+        socket.on('game:rematch', onRematch);
         socket.on('connect', join);
         join();
         return () => {
             socket.emit('game:leave', gameId);
             socket.off('game:update', onUpdate);
             socket.off('game:closed', onClosed);
+            socket.off('game:rematch', onRematch);
             socket.off('connect', join);
         };
     }, [gameId, load]);

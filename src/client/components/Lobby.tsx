@@ -76,7 +76,14 @@ export function Lobby({ me }: { me: PublicUser }) {
                 </section>
             )}
 
-            <CreateGame onCreated={(id) => navigate(`/g/${id}`)} />
+            <CreateGame
+                onCreated={(id) => navigate(`/g/${id}`)}
+                blocking={
+                    data.mine.find((g) => g.hostId === me.id && g.status !== 'finished') ?? null
+                }
+            />
+
+            <JoinGame onJoined={(id) => navigate(`/g/${id}`)} />
 
             <GameListSection
                 title="Your games"
@@ -90,6 +97,14 @@ export function Lobby({ me }: { me: PublicUser }) {
                         void load();
                     } catch (e) {
                         setErr(e instanceof ApiError ? e.message : 'Failed to close game');
+                    }
+                }}
+                onExit={async (id) => {
+                    try {
+                        await api.leaveGame(id);
+                        void load();
+                    } catch (e) {
+                        setErr(e instanceof ApiError ? e.message : 'Failed to leave game');
                     }
                 }}
             />
@@ -111,6 +126,7 @@ function GameListSection({
     empty,
     joinable,
     onClose,
+    onExit,
 }: {
     title: string;
     games: GameSummary[];
@@ -118,6 +134,7 @@ function GameListSection({
     empty: string;
     joinable?: boolean;
     onClose?: (id: string) => void;
+    onExit?: (id: string) => void;
 }) {
     return (
         <section className="panel">
@@ -151,6 +168,14 @@ function GameListSection({
                                 >
                                     {joinable ? 'Join' : 'Open'}
                                 </button>
+                                {onExit && g.status === 'finished' && (
+                                    <button
+                                        className="btn btn-ghost"
+                                        onClick={() => onExit(g.id)}
+                                    >
+                                        Exit
+                                    </button>
+                                )}
                                 {onClose && g.hostId === me.id && (
                                     <button
                                         className="btn btn-ghost"
@@ -168,11 +193,15 @@ function GameListSection({
     );
 }
 
-function CreateGame({ onCreated }: { onCreated: (id: string) => void }) {
+function CreateGame({
+    onCreated,
+    blocking,
+}: {
+    onCreated: (id: string) => void;
+    blocking: GameSummary | null;
+}) {
     const [type, setType] = useState<GameType>('splendor');
-    const [name, setName] = useState('');
     const [visibility, setVisibility] = useState<GameVisibility>('private');
-    const [code, setCode] = useState('');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -189,14 +218,6 @@ function CreateGame({ onCreated }: { onCreated: (id: string) => void }) {
                             </option>
                         ))}
                     </select>
-                </label>
-                <label className="field">
-                    <span>Name (optional)</span>
-                    <input
-                        value={name}
-                        placeholder="Friday night Splendor"
-                        onChange={(e) => setName(e.target.value)}
-                    />
                 </label>
                 <div className="field">
                     <span>Visibility</span>
@@ -216,16 +237,22 @@ function CreateGame({ onCreated }: { onCreated: (id: string) => void }) {
                     </div>
                 </div>
             </div>
+            {blocking ? (
+                <p className="muted">
+                    You already have a game (<strong>{blocking.name}</strong>). Leave or close it
+                    before creating another.
+                </p>
+            ) : null}
             {error && <p className="error">{error}</p>}
             <div className="create-actions">
                 <button
                     className="btn btn-primary"
-                    disabled={busy}
+                    disabled={busy || blocking != null}
                     onClick={async () => {
                         setBusy(true);
                         setError(null);
                         try {
-                            const g = await api.createGame({ type, name, visibility });
+                            const g = await api.createGame({ type, visibility });
                             onCreated(g.id);
                         } catch (e) {
                             setError(e instanceof ApiError ? e.message : 'Failed to create');
@@ -236,6 +263,20 @@ function CreateGame({ onCreated }: { onCreated: (id: string) => void }) {
                 >
                     Create game
                 </button>
+            </div>
+        </section>
+    );
+}
+
+function JoinGame({ onJoined }: { onJoined: (id: string) => void }) {
+    const [code, setCode] = useState('');
+    const [error, setError] = useState<string | null>(null);
+
+    return (
+        <section className="panel">
+            <h2>Join game</h2>
+            {error && <p className="error">{error}</p>}
+            <div className="create-actions">
                 <div className="join-code">
                     <input
                         value={code}
@@ -248,13 +289,13 @@ function CreateGame({ onCreated }: { onCreated: (id: string) => void }) {
                         onClick={async () => {
                             try {
                                 const g = await api.joinByCode(code.trim());
-                                onCreated(g.id);
+                                onJoined(g.id);
                             } catch (e) {
                                 setError(e instanceof ApiError ? e.message : 'Failed to join');
                             }
                         }}
                     >
-                        Join by code
+                        Join
                     </button>
                 </div>
             </div>

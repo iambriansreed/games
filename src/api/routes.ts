@@ -4,7 +4,7 @@ import { GameType, GameVisibility } from '../shared/types';
 import { store } from './store';
 import { publicUser } from './auth';
 import { buildDetail, buildInvite, buildSummary } from './serialize';
-import { emitGame, emitGameClosed, emitInvites, emitLobby } from './realtime';
+import { emitGame, emitGameClosed, emitInvites, emitLobby, emitRematch } from './realtime';
 import { logError } from './log';
 import { GamePlayerRow, GameRow, User } from './types';
 
@@ -14,8 +14,9 @@ function fail(res: Response, code: number, message: string) {
     return res.status(code).json({ error: message });
 }
 
-function titleFor(type: GameType): string {
-    return type.charAt(0).toUpperCase() + type.slice(1);
+/** A friendly name for a user: their display name, else the email local part. */
+function displayName(user: User): string {
+    return (user.name || '').trim() || user.email.split('@')[0] || 'Player';
 }
 
 /** Load a game and its players, or null. */
@@ -51,16 +52,28 @@ api.get('/games', async (req: Request, res: Response) => {
 api.post('/games', async (req: Request, res: Response) => {
     try {
         const user = req.user as User;
-        const { type, name, visibility } = req.body as {
+        const { type, visibility } = req.body as {
             type?: GameType;
-            name?: string;
             visibility?: GameVisibility;
         };
         if (!type || !GAME_TYPES.includes(type)) return fail(res, 400, 'Unknown game type');
+
+        // One game at a time: block if the user already hosts an unfinished game,
+        // and tell them which one to leave or close first.
+        const mine = await store().listMyGames(user.id);
+        const existing = mine.find((g) => g.host_id === user.id && g.status !== 'finished');
+        if (existing) {
+            return fail(
+                res,
+                409,
+                `You already have a game (“${existing.name}”). Leave or close it before creating another.`,
+            );
+        }
+
         const mod = getGameModule(type);
         const game = await store().createGame({
             type,
-            name: (name || '').trim() || `${titleFor(type)} game`,
+            name: `${displayName(user)}’s game`,
             visibility: visibility === 'public' ? 'public' : 'private',
             hostId: user.id,
             minPlayers: mod.minPlayers,
@@ -139,7 +152,9 @@ api.post('/games/:id/leave', async (req: Request, res: Response) => {
     const user = req.user as User;
     const loaded = await loadGame(req.params.id);
     if (!loaded) return fail(res, 404, 'Game not found');
-    if (loaded.game.status !== 'lobby') return fail(res, 409, 'You cannot leave a game in progress');
+    // You can leave a lobby (before it starts) or a finished game (to clear it
+    // from your list); you can't bail on a game that's still in progress.
+    if (loaded.game.status === 'active') return fail(res, 409, 'You cannot leave a game in progress');
     await store().removePlayer(req.params.id, user.id);
     await emitGame(req.params.id);
     emitLobby();
@@ -183,6 +198,58 @@ api.post('/games/:id/start', async (req: Request, res: Response) => {
     } catch (err) {
         logError('games.start', err);
         fail(res, 400, err instanceof Error ? err.message : 'Failed to start game');
+    }
+});
+
+// Maps a finished game to its rematch lobby, so concurrent "Play again" clicks
+// from different players all converge on a single new game rather than spawning
+// one each. In-memory is fine: a rematch is only ever offered moments after a
+// game ends, well within a single process's lifetime.
+const rematches = new Map<string, string>();
+
+api.post('/games/:id/rematch', async (req: Request, res: Response) => {
+    try {
+        const user = req.user as User;
+        const loaded = await loadGame(req.params.id);
+        if (!loaded) return fail(res, 404, 'Game not found');
+        const { game, players } = loaded;
+        if (!players.some((p) => p.user_id === user.id)) return fail(res, 403, 'You are not a player');
+        if (game.status !== 'finished') return fail(res, 409, 'The game is not finished');
+
+        // Reuse an existing rematch so everyone lands in the same lobby.
+        const existingId = rematches.get(game.id);
+        if (existingId) {
+            const existing = await loadGame(existingId);
+            if (existing) {
+                await store().addPlayer(existingId, user.id);
+                const fresh = await store().getPlayers(existingId);
+                await emitGame(existingId);
+                return res.json(buildDetail(existing.game, fresh, user.id));
+            }
+            rematches.delete(game.id);
+        }
+
+        const mod = getGameModule(game.type);
+        const next = await store().createGame({
+            type: game.type,
+            name: game.name,
+            visibility: game.visibility,
+            hostId: game.host_id,
+            minPlayers: mod.minPlayers,
+            maxPlayers: mod.maxPlayers,
+        });
+        // Re-seat the same players in their original order.
+        for (const p of [...players].sort((a, b) => a.seat - b.seat)) {
+            await store().addPlayer(next.id, p.user_id);
+        }
+        rematches.set(game.id, next.id);
+        const fresh = await store().getPlayers(next.id);
+        emitRematch(game.id, next.id);
+        emitLobby();
+        res.json(buildDetail(next, fresh, user.id));
+    } catch (err) {
+        logError('games.rematch', err);
+        fail(res, 500, 'Failed to start rematch');
     }
 });
 

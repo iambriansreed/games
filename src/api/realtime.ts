@@ -66,6 +66,11 @@ export function emitGameClosed(gameId: string): void {
     io?.to(`game:${gameId}`).emit('game:closed', gameId);
 }
 
+/** Point everyone in a finished game at its freshly-created rematch lobby. */
+export function emitRematch(fromGameId: string, toGameId: string): void {
+    io?.to(`game:${fromGameId}`).emit('game:rematch', { from: fromGameId, to: toGameId });
+}
+
 export function emitInvites(userId: string): void {
     io?.to(`user:${userId}`).emit('invites:update');
 }

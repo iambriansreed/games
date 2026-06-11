@@ -34,6 +34,55 @@
     }
 }
 
+/* Rainbow celebration: draw each band, then the whole arc fades. */
+@keyframes rainbow-draw {
+    /* One continuous pass: the arc sweeps in from the left, fills, and
+       carries on out to the right — a single smooth in-and-out motion. */
+    from {
+        stroke-dashoffset: 1560;
+    }
+    to {
+        stroke-dashoffset: -1560;
+    }
+}
+
+@keyframes rainbow-appear {
+    0% {
+        opacity: 0;
+    }
+    8% {
+        opacity: 1;
+    }
+    /* Stay solid through the retract; tiny fade cleans up the trailing cap. */
+    96% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+    }
+}
+
+/* Game-over overlay entrance. */
+@keyframes game-over-fade {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes game-over-pop {
+    from {
+        opacity: 0;
+        transform: translateY(12px) scale(0.94);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
 /* Pulse the buyable-card gold outline between faint and solid. */
 @keyframes buy-outline-pulse {
     0%,
@@ -60,12 +109,6 @@
     --gem-brown-border: #946d4c;
     --gem-gold: #d9b44a;
 
-    --cost-red: color-mix(in srgb, var(--gem-red) 60%, white);
-    --cost-blue: color-mix(in srgb, var(--gem-blue) 60%, white);
-    --cost-green: color-mix(in srgb, var(--gem-green) 60%, white);
-    --cost-brown: color-mix(in srgb, var(--gem-brown) 60%, white);
-    --cost-white: color-mix(in srgb, var(--gem-white) 60%, white);
-
     --empty-token-bg: var(--color-background-secondary);
 
     /* Device frame */
@@ -85,16 +128,13 @@
     .gold {
         --accent: #000;
         --on-accent: #fff;
-        --cost-accent: #000;
+        --accent-border: transparent;
 
         .fill,
         &.fill {
             background: var(--accent);
             color: var(--on-accent);
-        }
-
-        &.cost {
-            color: var(--cost-accent);
+            border: 1px solid var(--accent-border);
         }
 
         &.empty,
@@ -106,66 +146,53 @@
     .white {
         --accent: var(--gem-white);
         --on-accent: #333a45;
-        --cost-accent: var(--cost-white);
 
-        &.card {
-            background-image:
-                repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 13px),
-                repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 13px);
-        }
+        --accent-background-image:
+            repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 13px),
+            repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 13px);
     }
 
     .blue {
         --accent: var(--gem-blue);
-        --cost-accent: var(--cost-blue);
 
-        &.card {
-            background-image: radial-gradient(rgba(255, 255, 255, 0.09) 1.3px, transparent 1.4px);
-            background-size: 11px 11px;
-        }
+        --accent-background-image: radial-gradient(
+            rgba(255, 255, 255, 0.09) 1.3px,
+            transparent 1.4px to 11px
+        );
     }
 
     .green {
         --accent: var(--gem-green);
-        --cost-accent: var(--cost-green);
 
-        &.card {
-            background-image: repeating-linear-gradient(
-                45deg,
-                rgba(255, 255, 255, 0.06) 0 2px,
-                transparent 2px 11px
-            );
-        }
+        --accent-background-image: repeating-linear-gradient(
+            45deg,
+            rgba(255, 255, 255, 0.06) 0 2px,
+            transparent 2px 11px
+        );
     }
 
     .red {
         --accent: var(--gem-red);
-        --cost-accent: var(--cost-red);
 
-        &.card {
-            background-image: repeating-linear-gradient(
-                90deg,
-                rgba(255, 255, 255, 0.05) 0 1px,
-                transparent 1px 9px
-            );
-        }
+        --accent-background-image: repeating-linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0.05) 0 1px,
+            transparent 1px 9px
+        );
     }
 
     .brown {
         --accent: var(--gem-brown);
-        --cost-accent: var(--cost-brown);
+        --accent-border: var(--gem-brown-border);
 
-        &.card {
-            background-image:
-                repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 12px),
-                repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 12px);
-        }
+        --accent-background-image:
+            repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 12px),
+            repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 12px);
     }
 
     .gold {
         --accent: var(--gem-gold);
         --on-accent: #2c2104;
-        --cost-accent: var(--cost-gold);
     }
 
     /* Current player heading above own gems */
@@ -323,6 +350,12 @@
         align-items: center;
         gap: 13px;
         margin-top: 10px;
+    }
+
+    /* Opponent tray: the token chips overhang the row's bottom by 9px, so add
+       space beneath the coin bank rather than letting them crowd the card edge. */
+    .player .player-gems {
+        margin-bottom: 20px;
     }
 
     .pg-col {
@@ -556,7 +589,7 @@
 
     .card {
         flex: 1;
-        aspect-ratio: 3 / 3.5;
+        aspect-ratio: 3 / 4;
         border-radius: 11px;
         overflow: hidden;
         display: flex;
@@ -567,6 +600,7 @@
             box-shadow 0.18s ease;
         background-color: #333a45;
         border: 0.5px solid #424956;
+        background-image: var(--accent-background-image);
 
         /* Each gem colour gets its own background texture */
 
@@ -638,19 +672,20 @@
     .card-cost {
         flex: 1;
         min-height: 0;
-        display: flex;
-        flex-flow: row wrap;
-        align-content: flex-end;
-        justify-content: flex-start;
-        gap: 2px 7px;
-        padding: 6px 8px 8px;
+        /* A fixed 2×2 grid; each cost token is explicitly placed (see the Card
+           component) so costs fill the bottom-left corner: left column first,
+           top-to-bottom, with partial columns bottom-aligned. */
+        display: grid;
+        grid-template-columns: repeat(2, max-content);
+        grid-template-rows: repeat(2, max-content);
+        grid-auto-rows: max-content;
+        justify-content: start;
+        align-content: end;
+        justify-items: start;
+        align-items: end;
+        gap: 6px;
+        padding: 6px;
         overflow: hidden;
-    }
-
-    .cost {
-        font-size: 15px;
-        font-weight: 600;
-        line-height: 1.35;
     }
 
     /* Clear delineation between the board and your own gems */
@@ -695,6 +730,12 @@
         transition:
             transform 0.15s ease,
             box-shadow 0.15s ease;
+
+        &.x-sm {
+            width: 26px;
+            height: 26px;
+            font-size: 16px;
+        }
 
         &.sm {
             width: 32px;
@@ -1017,10 +1058,149 @@
         box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5);
     }
 
+    /* Noble tile flying from the board to its new owner's stack */
+
+    .flying-noble {
+        position: fixed;
+        z-index: 90;
+        margin: 0;
+        pointer-events: none;
+        border-radius: 10px;
+        background: linear-gradient(155deg, #e3c463, #a9842a);
+        border: 1px solid #efd882;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #3a2c06;
+        font-size: 22px;
+        font-weight: 800;
+        transform-origin: center center;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55);
+    }
+
     /* Pulse the self card when a bought card lands on it */
 
     .pg-bump {
         animation: pg-bump 0.3s ease;
+    }
+
+    /* Full-viewport rainbow celebration arc */
+
+    .rainbow-arc {
+        position: fixed;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
+        pointer-events: none;
+        z-index: 95;
+        filter: drop-shadow(0 0 7px rgba(255, 255, 255, 0.3));
+        animation: rainbow-appear 6.5s ease forwards;
+    }
+
+    .rainbow-arc path {
+        fill: none;
+        stroke-width: 17;
+        stroke-linecap: round;
+        stroke-dasharray: 1560;
+        stroke-dashoffset: 1560;
+        animation: rainbow-draw 6.5s ease-in-out forwards;
+    }
+
+    /* Game-over overlay */
+
+    .game-over {
+        position: fixed;
+        inset: 0;
+        z-index: 200;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        animation: game-over-fade 0.6s ease forwards;
+    }
+
+    .game-over--loss {
+        background: rgba(5, 6, 8, 0.74);
+        backdrop-filter: blur(3px);
+        -webkit-backdrop-filter: blur(3px);
+    }
+
+    .game-over--win {
+        background: rgba(8, 10, 14, 0.55);
+    }
+
+    .confetti-layer {
+        position: fixed;
+        inset: 0;
+        z-index: 205;
+        pointer-events: none;
+        overflow: hidden;
+    }
+
+    .confetti-bit {
+        position: fixed;
+        border-radius: 2px;
+        will-change: transform, opacity;
+    }
+
+    .game-over-card {
+        position: relative;
+        z-index: 210;
+        width: min(360px, 100%);
+        padding: 28px 24px 22px;
+        border-radius: 20px;
+        background: #20242c;
+        border: 1px solid #353c47;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+        text-align: center;
+        animation: game-over-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+
+    .game-over--win .game-over-card {
+        border-color: var(--gem-gold);
+        box-shadow:
+            0 24px 60px rgba(0, 0, 0, 0.6),
+            0 0 0 1px rgba(217, 180, 74, 0.4);
+    }
+
+    .game-over-title {
+        margin: 0;
+        font-size: 28px;
+        font-weight: 800;
+        letter-spacing: 0.3px;
+        color: #f2f0ea;
+    }
+
+    .game-over--win .game-over-title {
+        color: var(--gem-gold);
+    }
+
+    .game-over-sub {
+        margin: 8px 0 22px;
+        font-size: 14px;
+        color: #b9bdc6;
+    }
+
+    .game-over-actions {
+        display: flex;
+        gap: 10px;
+        justify-content: center;
+    }
+
+    .game-over-actions .token-btn {
+        margin: 0;
+        min-width: 110px;
+    }
+
+    .game-over-leave {
+        background: #353a45;
+        color: #e7e3d8;
+    }
+
+    /* Loser's board drains to greyscale behind the overlay. */
+    .board-lost .device {
+        filter: grayscale(1) brightness(0.5);
+        transition: filter 1.3s ease;
     }
 
     /* Theme + layout overrides. These come last in the root, so they win over the
@@ -1035,6 +1215,72 @@
 
     .self-tokens.is-full {
         color: var(--gem-red);
+    }
+
+    /* Turn + final-round status, pinned under the bank. */
+    .status-bar {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+        margin: 0 8px 12px;
+    }
+
+    /* Opponent reserved-card backs + won nobles, under their gem row. */
+    .opp-extras {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        margin-top: 10px;
+    }
+
+    .opp-reserved {
+        display: flex;
+        gap: 4px;
+    }
+
+    .opp-reserved-back {
+        width: 22px;
+        height: 30px;
+        border-radius: 4px;
+        background: linear-gradient(150deg, #3a4150, #262b34);
+        border: 1px solid #4a5161;
+        box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.06);
+    }
+
+    .opp-nobles {
+        display: flex;
+        gap: 4px;
+        margin-left: auto;
+    }
+
+    .opp-noble {
+        width: 24px;
+        height: 24px;
+        border-radius: 5px;
+        background: linear-gradient(155deg, #e3c463, #a9842a);
+        border: 1px solid #efd882;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #3a2c06;
+        font-size: 13px;
+        font-weight: 700;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    }
+
+    /* Final round — a persistent red warning that the next moves are the last. */
+    .final-banner {
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+        color: #f2d2cd;
+        padding: 5px 14px;
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--gem-red) 30%, #1b1f26);
+        border: 1px solid var(--gem-red);
+        text-align: center;
     }
 
     /* Board sits flush under the app header (no top gutter). */
@@ -1075,7 +1321,6 @@
 :root[data-theme='light'] .splendor-board {
     /* Default white is too close to the light background; use a greyer tone. */
     --gem-white: #c2bfb6;
-    --cost-white: #9b978c;
     --empty-token-bg: #fffefa;
 }
 
@@ -1088,4 +1333,106 @@
 :root[data-theme='light'] .splendor-board .card.can-buy:not(.is-lifted)::before,
 :root[data-theme='light'] .splendor-board .reserved-card.can-buy::before {
     border-color: #e0c161;
+}
+
+/* ---- Admin animation-test reel ---- */
+
+.anim-tester {
+    position: relative;
+}
+
+/* Floating caption + controls; above the game-over overlay (z 200). */
+.anim-tester-bar {
+    position: fixed;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    z-index: 300;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    max-width: calc(100% - 24px);
+    padding: 10px 12px 10px 16px;
+    border-radius: 14px;
+    background: rgba(24, 27, 33, 0.96);
+    border: 1px solid #353c47;
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
+.anim-tester-info {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+}
+
+.anim-tester-count {
+    font-size: 12px;
+    font-weight: 700;
+    color: #2c2104;
+    background: var(--gold, #d9b44a);
+    border-radius: 999px;
+    padding: 2px 8px;
+    flex: 0 0 auto;
+}
+
+.anim-tester-label {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f2f0ea;
+    flex: 0 0 auto;
+}
+
+.anim-tester-desc {
+    font-size: 12px;
+    color: #9aa0ab;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.anim-tester-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+}
+
+.anim-tester-controls button {
+    border: 1px solid #3a414d;
+    background: #2b313b;
+    color: #e7e3d8;
+    border-radius: 9px;
+    min-width: 34px;
+    height: 34px;
+    padding: 0 10px;
+    font-size: 14px;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.anim-tester-controls button:hover {
+    background: #353c47;
+}
+
+.anim-tester-controls .anim-tester-exit {
+    background: var(--gold, #d9b44a);
+    color: #2c2104;
+    border-color: var(--gold, #d9b44a);
+}
+
+/* Repeat toggle, lit when active. */
+.anim-tester-controls .anim-tester-on {
+    background: #4f9d6b;
+    color: #07120b;
+    border-color: #4f9d6b;
+}
+
+@media (max-width: 480px) {
+    .anim-tester-desc {
+        display: none;
+    }
 }

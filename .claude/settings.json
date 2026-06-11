@@ -29,7 +29,10 @@
       "Bash(grep -n \"@media\\\\|@container\\\\|^  }$\\\\|^}\" src/client/components/splendor/splendor.css)",
       "Bash(awk -F: '$1>=1000 && $1<=1245')",
       "Bash(grep -n \"^\\\\.\\\\|^[a-zA-Z].*{$\\\\|^    \\\\.backdrop\\\\|^\\\\.backdrop\" src/client/components/splendor/splendor.css)",
-      "Bash(npx prettier *)"
+      "Bash(npx prettier *)",
+      "Bash(node -e ' *)",
+      "Bash(awk 'NR>=1000 && NR<=1130 {n=gsub\\(/{/,\"{\"\\); m=gsub\\(/}/,\"}\"\\); printf \"%d: depth_change +%d -%d | %s\\\\n\", NR, n, m, $0}' src/client/components/splendor/splendor.css)",
+      "Bash(awk 'NR<=1095 {o=gsub\\(/{/,\"{\"\\); c=gsub\\(/}/,\"}\"\\); depth+=o-c; if\\(o>0 && /^[^[:space:]]/\\) print NR\": \"$0\"  \\(depth now \"depth\"\\)\"}' src/client/components/splendor/splendor.css)"
     ]
   }
 }

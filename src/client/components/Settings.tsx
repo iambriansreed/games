@@ -143,6 +143,17 @@ export function Settings({
                     </p>
                     {devError && <p className="error">{devError}</p>}
                     <div className="dev-tools">
+                        <button
+                            className="btn dev-tool"
+                            disabled={devBusy != null}
+                            onClick={() => navigate('/dev/animations')}
+                        >
+                            <span className="dev-tool-label">▶ Test animations</span>
+                            <span className="dev-tool-desc">
+                                Play every Splendor animation back to back — tokens, card buy/reserve,
+                                noble visit, rainbow, turn change, final round, and game over.
+                            </span>
+                        </button>
                         {SPLENDOR_DEV_SCENARIOS.map((s) => (
                             <button
                                 key={s.key}

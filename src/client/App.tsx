@@ -8,6 +8,7 @@ import { Header } from './components/Header';
 import { Lobby } from './components/Lobby';
 import { GameView } from './components/GameView';
 import { Settings } from './components/Settings';
+import { AnimationTester } from './components/splendor/AnimationTester';
 
 type AuthState =
     | { status: 'loading' }
@@ -113,6 +114,12 @@ export function App() {
             <main className="app-main">
                 {route.view === 'game' ? (
                     <GameView gameId={route.id} me={auth.user} onTitleChange={setGameTitle} />
+                ) : route.view === 'dev-animations' ? (
+                    auth.isAdmin ? (
+                        <AnimationTester me={auth.user} />
+                    ) : (
+                        <Lobby me={auth.user} />
+                    )
                 ) : route.view === 'settings' ? (
                     <Settings
                         user={auth.user}
