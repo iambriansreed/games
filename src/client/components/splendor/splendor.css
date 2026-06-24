@@ -94,6 +94,62 @@
     }
 }
 
+/* Turn-change announcement: grey wash fades in, holds, fades out. */
+@keyframes turn-flash-in {
+    0% {
+        opacity: 0;
+    }
+    12% {
+        opacity: 1;
+    }
+    72% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+    }
+}
+
+@keyframes turn-flash-pop {
+    0% {
+        opacity: 0;
+        transform: translateY(10px) scale(0.92);
+    }
+    16% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    72% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(-6px) scale(1.03);
+    }
+}
+
+/* Your-turn variant: enter and hold (it stays until "Continue" is clicked). */
+@keyframes turn-flash-enter {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes turn-flash-pop-enter {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.92);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
 .splendor-board {
     --color-background-secondary: #0e0f12;
     --color-border-tertiary: #2a2e36;
@@ -517,15 +573,23 @@
         padding: 8px 10px;
     }
 
+    /* Each noble cost is a rounded colour square with the required card count
+       inside — the card-coloured cousin of a deck card's round token costs.
+       Carries a colour class (white/blue/…) so --accent drives the fill/text. */
     .noble-cost {
+        box-sizing: border-box;
+        flex: 0 0 auto;
+        width: 20px;
+        height: 20px;
+        border-radius: 5px;
         display: flex;
         align-items: center;
-        gap: 3px;
-    }
-
-    .noble-cost-count {
-        font-size: 16px;
-        color: #cfcabd;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 700;
+        background: var(--accent);
+        color: var(--on-accent);
+        border: 1px solid var(--accent-border);
     }
 
     /* Card rows */
@@ -1066,12 +1130,12 @@
         margin: 0;
         pointer-events: none;
         border-radius: 10px;
-        background: linear-gradient(155deg, #e3c463, #a9842a);
-        border: 1px solid #efd882;
+        background: linear-gradient(155deg, #9aa0ab, #5e646e);
+        border: 1px solid #b8bcc5;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #3a2c06;
+        color: #20242c;
         font-size: 22px;
         font-weight: 800;
         transform-origin: center center;
@@ -1240,13 +1304,38 @@
         gap: 4px;
     }
 
+    /* Opponent reserved-card backs, tinted by the card's level so a stash of
+       reserves reads at a glance (green = 1, amber = 2, blue = 3). The faint
+       level numeral, like a real card back, reinforces it. */
     .opp-reserved-back {
-        width: 22px;
-        height: 30px;
+        width: 24px;
+        height: 32px;
         border-radius: 4px;
-        background: linear-gradient(150deg, #3a4150, #262b34);
-        border: 1px solid #4a5161;
-        box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.06);
+        display: flex;
+        align-items: flex-start;
+        justify-content: flex-end;
+        padding: 2px 4px 0 0;
+        font-size: 10px;
+        font-weight: 800;
+        color: rgba(255, 255, 255, 0.8);
+        box-shadow:
+            inset 0 1px 2px rgba(255, 255, 255, 0.14),
+            0 1px 3px rgba(0, 0, 0, 0.4);
+    }
+
+    .opp-reserved-back.lvl-1 {
+        background: linear-gradient(150deg, #5fae7a, #3a7b52);
+        border: 1px solid #7cc998;
+    }
+
+    .opp-reserved-back.lvl-2 {
+        background: linear-gradient(150deg, #d8ab51, #a67c2b);
+        border: 1px solid #efce82;
+    }
+
+    .opp-reserved-back.lvl-3 {
+        background: linear-gradient(150deg, #6a9cde, #3d6cae);
+        border: 1px solid #93b8ec;
     }
 
     .opp-nobles {
@@ -1255,16 +1344,18 @@
         margin-left: auto;
     }
 
+    /* Opponent's won nobles — a neutral silver badge (not gold) so it doesn't
+       read as a gem/coin reward. */
     .opp-noble {
         width: 24px;
         height: 24px;
         border-radius: 5px;
-        background: linear-gradient(155deg, #e3c463, #a9842a);
-        border: 1px solid #efd882;
+        background: linear-gradient(155deg, #9aa0ab, #5e646e);
+        border: 1px solid #b8bcc5;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #3a2c06;
+        color: #20242c;
         font-size: 13px;
         font-weight: 700;
         box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
@@ -1315,6 +1406,59 @@
     .card.can-buy:not(.is-lifted)::before,
     .reserved-card.can-buy::before {
         border-radius: 16px;
+    }
+
+    /* Whose-turn announcement: the whole screen greys over with a large label,
+       then fades. Pointer-transparent so it never blocks a tap underneath. */
+    .turn-flash {
+        position: fixed;
+        inset: 0;
+        z-index: 150;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        background: rgba(18, 20, 24, 0.72);
+        backdrop-filter: blur(2px);
+        -webkit-backdrop-filter: blur(2px);
+        animation: turn-flash-in 1.6s ease forwards;
+    }
+
+    .turn-flash-box {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+    }
+
+    .turn-flash-text {
+        font-size: 32px;
+        font-weight: 800;
+        letter-spacing: 0.4px;
+        color: #f2f0ea;
+        text-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+        animation: turn-flash-pop 1.6s cubic-bezier(0.34, 1.4, 0.5, 1) forwards;
+    }
+
+    /* Your own turn: gold, and it stays put (interactive) until "Continue" is
+       clicked, so the entrance holds rather than fading out. */
+    .turn-flash--mine {
+        pointer-events: auto;
+        cursor: default;
+        animation: turn-flash-enter 0.32s ease forwards;
+    }
+
+    .turn-flash--mine .turn-flash-text {
+        color: var(--gem-gold);
+        animation: turn-flash-pop-enter 0.4s cubic-bezier(0.34, 1.4, 0.5, 1) forwards;
+    }
+
+    .turn-flash-continue {
+        margin: 0;
+        min-width: 150px;
+        padding: 12px 24px;
+        font-size: 15px;
+        animation: turn-flash-pop-enter 0.45s cubic-bezier(0.34, 1.4, 0.5, 1) 0.06s both;
     }
 }
 

@@ -45,11 +45,15 @@ export function SplendorBoard({
     me,
     dispatch,
     onToast,
+    suppressStartFlash = false,
 }: {
     detail: GameDetail;
     me: PublicUser;
     dispatch: (action: unknown) => void;
     onToast: (msg: string) => void;
+    // The animation tester remounts the board per step with fresh (turn 1) seeds;
+    // it sets this so each step doesn't fire the game-start turn flash.
+    suppressStartFlash?: boolean;
 }) {
     const state = detail.state as SplendorState;
     const mySeat = detail.youSeat;
@@ -85,6 +89,10 @@ export function SplendorBoard({
     const [rainbowKey, setRainbowKey] = useState(0);
     const [rainbowOn, setRainbowOn] = useState(false);
     const rainbowTimer = useRef<number>();
+    // Full-screen "whose turn" announcement, replayed (via `key`) each turn change
+    // and cleared by a timer once its fade-out finishes.
+    const [turnFlash, setTurnFlash] = useState<{ mine: boolean; name: string; key: number } | null>(null);
+    const turnFlashTimer = useRef<number>();
 
     const playersScrollRef = useRef<HTMLDivElement>(null);
     const noblesScrollRef = useRef<HTMLDivElement>(null);
@@ -415,14 +423,23 @@ export function SplendorBoard({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rainbowSig]);
 
-    // Announce each turn with a toast (your turn, or whose it is). Seeds on the
-    // first render so a reload mid-turn doesn't fire spuriously.
+    // Announce each turn with a full-screen flash (your turn, or whose it is).
+    // Fires on every turn change, plus once at game start (first render on turn 1)
+    // so the opening turn is announced too. A mid-game reload (turn > 1) seeds
+    // silently rather than flashing spuriously.
     const prevCurrentRef = useRef<number | null>(null);
     useEffect(() => {
         const prev = prevCurrentRef.current;
         prevCurrentRef.current = state.current;
-        if (state.winnerId || prev === null || prev === state.current) return;
-        onToast(isMyTurn ? 'Your turn' : `${seatName(state.current)}’s turn`);
+        if (state.winnerId) return;
+        const isStart = prev === null && !suppressStartFlash && state.turn === 1;
+        const isChange = prev !== null && prev !== state.current;
+        if (!isStart && !isChange) return;
+        const mine = isMyTurn;
+        setTurnFlash((f) => ({ mine, name: seatName(state.current), key: (f?.key ?? 0) + 1 }));
+        window.clearTimeout(turnFlashTimer.current);
+        // Others' turns auto-dismiss; your own turn stays until you click Continue.
+        if (!mine) turnFlashTimer.current = window.setTimeout(() => setTurnFlash(null), 1600);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [state.current]);
 
@@ -635,6 +652,27 @@ export function SplendorBoard({
         <div className={`splendor-board ${iLost ? 'board-lost' : ''}`}>
             <div className="fly-layer" ref={flyLayerRef} />
             {rainbowOn && <RainbowArc key={rainbowKey} />}
+            {turnFlash && (
+                <div
+                    key={turnFlash.key}
+                    className={`turn-flash ${turnFlash.mine ? 'turn-flash--mine' : ''}`}
+                    aria-hidden={!turnFlash.mine}
+                >
+                    <div className="turn-flash-box">
+                        <div className="turn-flash-text">
+                            {turnFlash.mine ? 'Your turn' : `${turnFlash.name}’s turn`}
+                        </div>
+                        {turnFlash.mine && (
+                            <button
+                                className="token-btn token-btn--confirm turn-flash-continue"
+                                onClick={() => setTurnFlash(null)}
+                            >
+                                Continue
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
             <div className="device">
                 <div className="screen" ref={screenRef}>
                     {/* Opponents */}
@@ -689,8 +727,7 @@ export function SplendorBoard({
                                     <div className="noble" key={n.id} data-noble-id={n.id}>
                                         {COLORS.filter((c) => n.cost[c]).map((c) => (
                                             <span className={`noble-cost ${c}`} key={c}>
-                                                <span className="gem fill" />
-                                                <span className="noble-cost-count">{n.cost[c]}</span>
+                                                {n.cost[c]}
                                             </span>
                                         ))}
                                     </div>
@@ -761,9 +798,8 @@ export function SplendorBoard({
                                     {myPlayer.nobles.map((n) => (
                                         <div className="noble" key={n.id}>
                                             {COLORS.filter((c) => n.cost[c]).map((c) => (
-                                                <span className="noble-cost" key={c}>
-                                                    <span className={`gem gem--${c}`} />
-                                                    <span className="noble-cost-count">{n.cost[c]}</span>
+                                                <span className={`noble-cost ${c}`} key={c}>
+                                                    {n.cost[c]}
                                                 </span>
                                             ))}
                                         </div>
@@ -990,9 +1026,8 @@ export function SplendorBoard({
                                         }}
                                     >
                                         {COLORS.filter((c) => n.cost[c]).map((c) => (
-                                            <span className="noble-cost" key={c}>
-                                                <span className={`gem gem--${c}`} />
-                                                <span className="noble-cost-count">{n.cost[c]}</span>
+                                            <span className={`noble-cost ${c}`} key={c}>
+                                                {n.cost[c]}
                                             </span>
                                         ))}
                                     </div>
@@ -1398,7 +1433,9 @@ function Opponent({
                     {reservedCount > 0 && (
                         <div className="opp-reserved" title={`${reservedCount} reserved`}>
                             {player.reserved.map((c) => (
-                                <span className="opp-reserved-back" key={c.id} />
+                                <span className={`opp-reserved-back lvl-${c.level}`} key={c.id}>
+                                    {c.level}
+                                </span>
                             ))}
                         </div>
                     )}

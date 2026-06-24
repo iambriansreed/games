@@ -100,7 +100,7 @@ function buildSteps(meId: string): AnimStep[] {
         steps.push({
             key: 'your-turn',
             label: 'Your turn',
-            desc: 'Toast + pulsing banner when the turn becomes yours',
+            desc: 'Full-screen flash announcing whose turn it is',
             seed,
             fired,
             hold: 2600,
@@ -394,6 +394,7 @@ export function AnimationTester({ me }: { me: PublicUser }) {
                 me={me}
                 dispatch={() => {}}
                 onToast={pushToast}
+                suppressStartFlash
             />
             {toast && <div className="toast">{toast}</div>}
 
