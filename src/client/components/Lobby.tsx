@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { GameSummary, GameType, GameVisibility, PublicUser } from '../../shared/types';
+import { GameSummary, GameType, GameVisibility, PlayerRecord, PublicUser } from '../../shared/types';
 import { api, ApiError, LobbyData } from '../api';
 import { getSocket } from '../socket';
 import { navigate } from '../router';
@@ -37,6 +37,8 @@ export function Lobby({ me }: { me: PublicUser }) {
 
     return (
         <div className="lobby">
+            <RecordPanel record={data.record} />
+
             {data.invites.length > 0 && (
                 <section className="panel">
                     <h2>Invitations</h2>
@@ -119,6 +121,44 @@ export function Lobby({ me }: { me: PublicUser }) {
     );
 }
 
+/**
+ * Your all-time tally, derived server-side from every finished game you were in.
+ * The service worker can serve a cached lobby payload from before this shipped,
+ * so a missing record reads as 0–0 rather than blanking the page.
+ */
+function RecordPanel({ record }: { record?: PlayerRecord }) {
+    const { wins, losses } = record ?? { wins: 0, losses: 0 };
+    const played = wins + losses;
+    return (
+        <section className="panel record-panel">
+            <h2>Your record</h2>
+            <div className="record-stats">
+                <div className="record-stat record-stat--win">
+                    <strong>{wins}</strong>
+                    <span>won</span>
+                </div>
+                <div className="record-stat record-stat--loss">
+                    <strong>{losses}</strong>
+                    <span>lost</span>
+                </div>
+                <div className="record-stat">
+                    <strong>{played ? `${Math.round((wins / played) * 100)}%` : '—'}</strong>
+                    <span>win rate</span>
+                </div>
+            </div>
+            {played === 0 && <p className="muted">Finish a game to start your record.</p>}
+        </section>
+    );
+}
+
+/** Who took a finished game, phrased from the viewer's point of view. */
+function winnerLabel(game: GameSummary, me: PublicUser): string {
+    if (!game.winnerId) return 'Ended with no winner';
+    if (game.winnerId === me.id) return 'You won';
+    const winner = game.players.find((p) => p.userId === game.winnerId);
+    return `${winner?.name || 'Another player'} won`;
+}
+
 function GameListSection({
     title,
     games,
@@ -153,6 +193,15 @@ function GameListSection({
                                     {g.type} · {g.players.length}/{g.maxPlayers} players
                                     {g.hostId === me.id ? ' · you host' : ''}
                                 </div>
+                                {g.status === 'finished' && (
+                                    <div
+                                        className={`winner-line ${
+                                            g.winnerId === me.id ? 'winner-line--mine' : ''
+                                        }`}
+                                    >
+                                        {winnerLabel(g, me)}
+                                    </div>
+                                )}
                             </div>
                             <div className="row-actions">
                                 <button
@@ -176,7 +225,7 @@ function GameListSection({
                                         Exit
                                     </button>
                                 )}
-                                {onClose && g.hostId === me.id && (
+                                {onClose && g.hostId === me.id && g.status !== 'finished' && (
                                     <button
                                         className="btn btn-ghost"
                                         onClick={() => onClose(g.id)}

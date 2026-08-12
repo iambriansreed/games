@@ -17,6 +17,16 @@ export interface SplendorScenario {
     build(playerIds: string[], nowIso: string): SplendorState;
 }
 
+/**
+ * Pin a scenario to a deterministic seat 0 opening, past the first round — every
+ * scenario depicts a game already under way, so the opening-round skip offer
+ * shouldn't appear and the final round should end on a predictable seat.
+ */
+function midGame(state: SplendorState): void {
+    state.startSeat = 0;
+    state.turn = state.players.length + 1;
+}
+
 function syncCounts(state: SplendorState): void {
     const d = state.decks!;
     state.deckCounts = { 1: d[1].length, 2: d[2].length, 3: d[3].length };
@@ -60,6 +70,7 @@ export const SPLENDOR_SCENARIOS: SplendorScenario[] = [
             me.nobles = freeNobles(s, 3);
             me.tokens = tokens({ gold: 3, blue: 2, white: 1 });
             recount(me);
+            midGame(s);
             s.current = 0;
             s.log.push('[dev] Loaded: current player has 3 reserved cards and 3 nobles.');
             return s;
@@ -75,10 +86,12 @@ export const SPLENDOR_SCENARIOS: SplendorScenario[] = [
             const last = s.players.length - 1;
             const winner = s.players[last];
             // Five level-3 cards guarantee ≥15 points; finalRound + last seat
-            // means the very next action wraps to seat 0 and finishes the game.
+            // means the very next action wraps to the starting seat (pinned to 0
+            // by midGame rather than randomised) and finishes the game.
             winner.cards = drawCards(s, 3, 5);
             winner.tokens = tokens({ white: 3, blue: 3, green: 3, red: 3, brown: 3, gold: 5 });
             recount(winner);
+            midGame(s);
             s.current = last;
             s.finalRound = true;
             s.log.push('[dev] Loaded: it is your turn and any move wins the game.');
@@ -98,6 +111,7 @@ export const SPLENDOR_SCENARIOS: SplendorScenario[] = [
             opp.nobles = freeNobles(s, 2);
             opp.tokens = tokens({ white: 2, blue: 1, green: 2, brown: 1, gold: 2 });
             recount(opp);
+            midGame(s);
             s.current = 0;
             s.log.push('[dev] Loaded: 1v1 where the opponent has reserved cards and nobles.');
             return s;

@@ -117,6 +117,10 @@ export function createInitialState(playerIds: string[], nowIso: string): Splendo
         points: 0,
     }));
 
+    // Whoever sits in seat 0 shouldn't always open, so the starting seat is drawn
+    // at random. Play still proceeds in seat order from there, wrapping around.
+    const startSeat = Math.floor(Math.random() * n);
+
     const state: SplendorState = {
         players,
         bank,
@@ -124,7 +128,8 @@ export function createInitialState(playerIds: string[], nowIso: string): Splendo
         decks,
         deckCounts: { 1: decks[1].length, 2: decks[2].length, 3: decks[3].length },
         nobles,
-        current: 0,
+        current: startSeat,
+        startSeat,
         turn: 1,
         log: [],
         winnerId: null,
@@ -192,8 +197,9 @@ function awardNoble(state: SplendorState, player: SplendorPlayer, nobleId: strin
     state.log.push(`${shortId(player.id)} is visited by a noble (+3)`);
 }
 
+/** A compact label for the game log. Word ids fit as-is; legacy UUIDs get cut. */
 function shortId(id: string): string {
-    return id.slice(0, 8);
+    return id.length <= 24 ? id : id.slice(0, 8);
 }
 
 // ---------------------------------------------------------------------------
@@ -205,7 +211,9 @@ function endTurn(state: SplendorState): void {
     if (state.players.some((p) => p.points >= POINTS_GOAL)) state.finalRound = true;
     state.current = (state.current + 1) % n;
     state.turn++;
-    if (state.finalRound && state.current === 0) finishGame(state);
+    // Everyone gets the same number of turns, so the game ends when play wraps
+    // back to whoever opened it — not to seat 0, which needn't be the starter.
+    if (state.finalRound && state.current === state.startSeat) finishGame(state);
     syncDeckCounts(state);
 }
 
@@ -228,6 +236,16 @@ function finishGame(state: SplendorState): void {
 // Action application
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether the seat to move may pass instead of acting. Only on a player's very
+ * first turn — turns 1..n are exactly one opening turn each — which, together
+ * with the randomised starting seat, keeps the same players from always being
+ * forced to commit first.
+ */
+export function canSkip(state: SplendorState): boolean {
+    return !state.winnerId && state.pendingNoble == null && state.turn <= state.players.length;
+}
+
 export function applyAction(
     prev: SplendorState,
     playerId: string,
@@ -238,6 +256,9 @@ export function applyAction(
     const state = clone(prev);
     // Decks are not cloned away — keep them for server-side state.
     state.decks = prev.decks ? clone(prev.decks) : undefined;
+    // Games started before the starting seat was randomised have no startSeat;
+    // they all opened on seat 0, so that's the seat their final round ends on.
+    if (typeof state.startSeat !== 'number') state.startSeat = 0;
 
     const seat = state.players.findIndex((p) => p.id === playerId);
     if (seat < 0) throw new Error('You are not in this game');
@@ -267,6 +288,10 @@ export function applyAction(
             break;
         case 'buy':
             buyCard(state, player, action.cardId);
+            break;
+        case 'skip':
+            if (!canSkip(state)) throw new Error('You can only skip your first turn');
+            state.log.push(`${shortId(player.id)} skipped their first turn`);
             break;
         case 'chooseNoble':
             throw new Error('No noble to choose right now');

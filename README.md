@@ -30,32 +30,15 @@ view, so opponents never see your reserved cards or the deck order).
 
 ## Local development
 
-Dev runs over HTTPS at **https://local.games.iambrian.com** (Caddy terminates
-TLS on 443 with an mkcert cert and reverse-proxies to Vite), so PWA install,
-secure cookies, and Google OAuth all behave like production. Prod is
-**https://games.iambrian.com**.
+Dev runs on plain HTTP at **http://127.0.0.1:4567**, with the Vite client
+proxying API requests to the local Express backend.
 
 1. `npm install`
-2. Map the dev host to localhost — add to `/etc/hosts`:
-   `127.0.0.1  local.games.iambrian.com`
-3. Trust certs once: `brew install mkcert && mkcert -install`, then `npm run cert`.
-4. Copy `.env.example` → `.env.local` and fill in `DATABASE_URL` (any Postgres)
-   and `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`. Keep the pinned
-   `GOOGLE_REDIRECT_URI` (the Vite proxy rewrites the host in dev).
-5. `sudo -v` to cache your password (only **Caddy** needs root, to bind :443 —
-   the Vite plugin elevates just Caddy via `sudo -n caddy`). Then `npm run dev`
-   and open https://local.games.iambrian.com.
-
-   > Do **not** run `npm run dev` itself under `sudo` — that makes Vite write a
-   > root-owned `node_modules/.vite` cache, which then breaks later non-root runs
-   > ("invalid response" in the browser). If that happened:
-   > `sudo rm -rf node_modules/.vite`.
-
-   For a one-time passwordless Caddy rule instead of `sudo -v`:
-   `echo "$(whoami) ALL=(root) NOPASSWD: $(which caddy)" | sudo tee /etc/sudoers.d/games-caddy`
-
-No Caddy / plain HTTP instead? `npm run dev:http` serves http://127.0.0.1:4567
-(set `GOOGLE_REDIRECT_URI` to match if you use OAuth).
+2. Copy `.env.example` → `.env.local` and fill in `DATABASE_URL` (any Postgres)
+   and `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`.
+3. Start local development:
+   `npm run dev`
+4. Open http://127.0.0.1:4567 and sign in.
 
 `npm run typecheck` checks both the client and API tsconfigs. `npm run build`
 produces `dist/` (client) and `dist/server/` (API); `npm start` serves both.

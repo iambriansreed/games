@@ -1374,6 +1374,7 @@
         text-align: center;
     }
 
+
     /* Board sits flush under the app header (no top gutter). */
     .screen {
         padding: 0 0 14px;
@@ -1428,7 +1429,8 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 20px;
+        gap: 12px;
+        padding: 0 16px;
     }
 
     .turn-flash-text {
@@ -1453,12 +1455,42 @@
         animation: turn-flash-pop-enter 0.4s cubic-bezier(0.34, 1.4, 0.5, 1) forwards;
     }
 
+    /* Opening-round pass offer, called out under the gold "Your turn" label in a
+       cooler colour so it reads as a second, optional path rather than a warning. */
+    .turn-flash-sub {
+        font-size: 14px;
+        font-weight: 600;
+        text-align: center;
+        color: #93bcec;
+        animation: turn-flash-pop-enter 0.4s cubic-bezier(0.34, 1.4, 0.5, 1) 0.04s both;
+    }
+
+    .turn-flash-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 10px;
+        margin-top: 8px;
+    }
+
     .turn-flash-continue {
         margin: 0;
         min-width: 150px;
         padding: 12px 24px;
         font-size: 15px;
         animation: turn-flash-pop-enter 0.45s cubic-bezier(0.34, 1.4, 0.5, 1) 0.06s both;
+    }
+
+    /* Passing is the alternative to playing, so it takes the blue against the
+       gold Continue rather than competing with it. */
+    .turn-flash-skip {
+        margin: 0;
+        min-width: 150px;
+        padding: 12px 24px;
+        font-size: 15px;
+        background: var(--gem-blue);
+        color: #f2f0ea;
+        animation: turn-flash-pop-enter 0.45s cubic-bezier(0.34, 1.4, 0.5, 1) 0.1s both;
     }
 }
 

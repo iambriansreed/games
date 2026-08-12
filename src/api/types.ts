@@ -47,6 +47,9 @@ export interface GamePlayerRow {
     name: string | null;
     picture: string | null;
     joined_at: string;
+    /** All-time record, computed alongside the seat (see Store.getPlayers). */
+    wins: number;
+    losses: number;
 }
 
 export interface InviteRow {

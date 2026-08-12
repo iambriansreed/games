@@ -4,6 +4,7 @@ import {
     GameSummary,
     GameType,
     GameVisibility,
+    PlayerRecord,
     PublicUser,
 } from '../shared/types';
 
@@ -33,6 +34,8 @@ export interface LobbyData {
     open: GameSummary[];
     mine: GameSummary[];
     invites: GameInvite[];
+    /** The signed-in user's all-time record across every finished game. */
+    record: PlayerRecord;
 }
 
 export const api = {

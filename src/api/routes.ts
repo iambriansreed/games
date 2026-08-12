@@ -34,15 +34,16 @@ async function loadGame(id: string): Promise<{ game: GameRow; players: GamePlaye
 api.get('/games', async (req: Request, res: Response) => {
     try {
         const user = req.user as User;
-        const [openRows, myRows, inviteRows] = await Promise.all([
+        const [openRows, myRows, inviteRows, record] = await Promise.all([
             store().listOpenGames(user.id),
             store().listMyGames(user.id),
             store().listInvitesForUser(user.id),
+            store().getRecord(user.id),
         ]);
         const withPlayers = async (g: GameRow) => buildSummary(g, await store().getPlayers(g.id));
         const open = await Promise.all(openRows.map(withPlayers));
         const mine = await Promise.all(myRows.map(withPlayers));
-        res.json({ open, mine, invites: inviteRows.map(buildInvite) });
+        res.json({ open, mine, invites: inviteRows.map(buildInvite), record });
     } catch (err) {
         logError('games.list', err);
         fail(res, 500, 'Failed to load games');
@@ -155,7 +156,13 @@ api.post('/games/:id/leave', async (req: Request, res: Response) => {
     // You can leave a lobby (before it starts) or a finished game (to clear it
     // from your list); you can't bail on a game that's still in progress.
     if (loaded.game.status === 'active') return fail(res, 409, 'You cannot leave a game in progress');
-    await store().removePlayer(req.params.id, user.id);
+    if (loaded.game.status === 'finished') {
+        // Keep the seat on record so the result still counts toward both players'
+        // win/loss tallies — clearing the game only hides it from this user.
+        await store().hidePlayer(req.params.id, user.id);
+    } else {
+        await store().removePlayer(req.params.id, user.id);
+    }
     await emitGame(req.params.id);
     emitLobby();
     res.json({ ok: true });
@@ -166,6 +173,11 @@ api.delete('/games/:id', async (req: Request, res: Response) => {
     const loaded = await loadGame(req.params.id);
     if (!loaded) return fail(res, 404, 'Game not found');
     if (loaded.game.host_id !== user.id) return fail(res, 403, 'Only the host can close this game');
+    // A finished game's result belongs to everyone who played it, so the host
+    // can't delete it (and their records with it) — they clear it like anyone else.
+    if (loaded.game.status === 'finished') {
+        return fail(res, 409, 'Finished games can’t be closed — use Exit to clear it from your list');
+    }
     emitGameClosed(req.params.id);
     await store().deleteGame(req.params.id);
     emitLobby();

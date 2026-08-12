@@ -132,6 +132,13 @@ function WaitingRoom({
                                 </span>
                             )}
                             <span>{p.userId === me.id ? 'You' : p.name || 'Player'}</span>
+                            {/* Optional-chained: a cached pre-update payload has no record. */}
+                            <span
+                                className="chip-record"
+                                title={`${p.record?.wins ?? 0} won · ${p.record?.losses ?? 0} lost`}
+                            >
+                                {p.record?.wins ?? 0}–{p.record?.losses ?? 0}
+                            </span>
                             {p.userId === detail.hostId && <span className="tag">host</span>}
                         </li>
                     ))}

@@ -10,10 +10,8 @@
     },
     "scripts": {
         "dev": "concurrently -k -i \"npm:dev:client\" \"npm:dev:api\"",
-        "dev:http": "CADDY_PROXY=0 concurrently -k -i \"npm:dev:client\" \"npm:dev:api\"",
         "dev:client": "vite",
         "dev:api": "tsx watch --env-file-if-exists=.env.local src/api/server.ts",
-        "cert": "bash .sslcert/generate",
         "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.api.json --noEmit",
         "build:web": "tsc -p tsconfig.json --noEmit && vite build",
         "build:api": "tsc -p tsconfig.api.json && node scripts/postbuild-api.mjs",

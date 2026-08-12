@@ -5,6 +5,7 @@ import {
     HiddenCard,
     SplendorCard,
     SplendorPlayer,
+    SplendorState,
 } from '../../../shared/splendor/types';
 
 export const GEM_HEX: Record<Gem, string> = {
@@ -46,6 +47,15 @@ export function totalTokens(player: SplendorPlayer): number {
         player.tokens.brown +
         player.tokens.gold
     );
+}
+
+/**
+ * May the seat to move pass instead of acting? Mirrors the engine's `canSkip`
+ * (turns 1..n are each player's opening turn) so the button matches the rule the
+ * server enforces; the server is still the authority.
+ */
+export function canSkip(state: SplendorState): boolean {
+    return !state.winnerId && state.pendingNoble == null && state.turn <= state.players.length;
 }
 
 /** Can `player` afford `card` with bonuses + tokens (+ gold wild)? */

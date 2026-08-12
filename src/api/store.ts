@@ -1,11 +1,11 @@
 import crypto from 'node:crypto';
 import { Pool } from 'pg';
-import { GameStatus, GameType, GameVisibility, PublicUser } from '../shared/types';
+import { GameStatus, GameType, GameVisibility, PlayerRecord, PublicUser } from '../shared/types';
+import { randomName } from './id-base';
 import { GamePlayerRow, GameRow, GoogleProfile, InviteRow, Session, User } from './types';
 
-function newId(): string {
-    return crypto.randomUUID();
-}
+/** Tables whose `id` column is handed out by `Store.uniqueId`. */
+type IdTable = 'games_users' | 'games_games' | 'games_game_invites';
 
 /** Short, unambiguous join code (no easily-confused characters). */
 function newJoinCode(): string {
@@ -61,6 +61,12 @@ const SCHEMA = `
     );
     CREATE INDEX IF NOT EXISTS games_game_players_user_idx ON games_game_players (user_id);
 
+    -- Clearing a finished game off your lobby list hides the seat rather than
+    -- deleting it: the row is the evidence you played, and win/loss records are
+    -- derived from it. Added separately so existing tables pick it up on boot.
+    ALTER TABLE games_game_players
+        ADD COLUMN IF NOT EXISTS hidden boolean NOT NULL DEFAULT false;
+
     CREATE TABLE IF NOT EXISTS games_game_invites (
         id text PRIMARY KEY,
         game_id text NOT NULL REFERENCES games_games (id) ON DELETE CASCADE,
@@ -72,6 +78,21 @@ const SCHEMA = `
     );
     CREATE INDEX IF NOT EXISTS games_game_invites_invitee_idx
         ON games_game_invites (invitee_id, status);
+`;
+
+/**
+ * Win/loss tallies for the `p.user_id` of the enclosing query, derived from the
+ * games table rather than a counter — so records are always consistent with the
+ * games themselves and past games count without a backfill. Correlates on
+ * `p.user_id`, so it only works as a LATERAL subquery joined to a row exposing
+ * that column. A finished game with no winner (nobody scored) counts as neither.
+ */
+const RECORD_SUBQUERY = `
+    SELECT count(*) FILTER (WHERE g.winner_id = p.user_id) AS wins,
+           count(*) FILTER (WHERE g.winner_id IS NOT NULL AND g.winner_id <> p.user_id) AS losses
+    FROM games_game_players gp
+    JOIN games_games g ON g.id = gp.game_id AND g.status = 'finished'
+    WHERE gp.user_id = p.user_id
 `;
 
 function toIso(v: unknown): string {
@@ -135,11 +156,53 @@ export class Store {
         return res.rows as T[];
     }
 
+    /**
+     * A readable id like `brave-otter` that `table` has never used. Game ids end
+     * up in share links (/g/brave-otter), which is the whole point of preferring
+     * words to a UUID.
+     *
+     * There are only ~20k names, so a draw that's already taken is simply redrawn;
+     * once a table is full enough that plain names keep colliding, a numeric
+     * suffix (`brave-otter-42`) reopens the space, and a random tail guarantees
+     * the loop terminates no matter how full things get.
+     *
+     * `table` is interpolated rather than bound — it is always one of the literals
+     * in `IdTable`, never anything a request can influence. Checking before
+     * inserting leaves a theoretical race between two creates that draw the same
+     * free name in the same instant; the primary key would reject the loser, which
+     * at this scale is rarer than a dropped connection.
+     */
+    private async uniqueId(table: IdTable): Promise<string> {
+        for (let attempt = 0; attempt < 10; attempt++) {
+            const id = attempt < 6 ? randomName() : `${randomName()}-${crypto.randomInt(2, 1000)}`;
+            const taken = await this.q(`SELECT 1 FROM ${table} WHERE id = $1`, [id]);
+            if (taken.length === 0) return id;
+        }
+        return `${randomName()}-${crypto.randomUUID().slice(0, 8)}`;
+    }
+
     // ---- Users / sessions ----
 
     async upsertUser(profile: GoogleProfile): Promise<User> {
+        // Refresh an existing account first. Doing this before the insert means a
+        // returning login — the overwhelmingly common case — costs one statement
+        // and never draws a name it would only throw away.
         // Keep any custom name the user has set in settings; only fall back to
         // the Google profile name when we don't have one stored yet.
+        const existing = await this.q(
+            `UPDATE games_users
+                SET email = $2,
+                    name = COALESCE(name, $3),
+                    picture = $4,
+                    last_login_at = now()
+             WHERE google_sub = $1
+             RETURNING *`,
+            [profile.sub, profile.email, profile.name, profile.picture],
+        );
+        if (existing[0]) return mapUser(existing[0]);
+
+        // First sign-in. ON CONFLICT still guards the race where two logins for a
+        // brand-new account arrive together.
         const rows = await this.q(
             `INSERT INTO games_users (id, google_sub, email, name, picture)
              VALUES ($1, $2, $3, $4, $5)
@@ -149,7 +212,13 @@ export class Store {
                     picture = EXCLUDED.picture,
                     last_login_at = now()
              RETURNING *`,
-            [newId(), profile.sub, profile.email, profile.name, profile.picture],
+            [
+                await this.uniqueId('games_users'),
+                profile.sub,
+                profile.email,
+                profile.name,
+                profile.picture,
+            ],
         );
         return mapUser(rows[0]);
     }
@@ -230,7 +299,7 @@ export class Store {
         minPlayers: number;
         maxPlayers: number;
     }): Promise<GameRow> {
-        const id = newId();
+        const id = await this.uniqueId('games_games');
         const code = newJoinCode();
         const rows = await this.q(
             `INSERT INTO games_games
@@ -292,8 +361,11 @@ export class Store {
 
     async getPlayers(gameId: string): Promise<GamePlayerRow[]> {
         const rows = await this.q(
-            `SELECT p.game_id, p.user_id, p.seat, p.joined_at, u.name, u.picture
-             FROM games_game_players p JOIN games_users u ON u.id = p.user_id
+            `SELECT p.game_id, p.user_id, p.seat, p.joined_at, u.name, u.picture,
+                    r.wins, r.losses
+             FROM games_game_players p
+             JOIN games_users u ON u.id = p.user_id
+             CROSS JOIN LATERAL (${RECORD_SUBQUERY}) r
              WHERE p.game_id = $1 ORDER BY p.seat`,
             [gameId],
         );
@@ -304,7 +376,19 @@ export class Store {
             name: (r.name as string) ?? null,
             picture: (r.picture as string) ?? null,
             joined_at: toIso(r.joined_at),
+            wins: Number(r.wins),
+            losses: Number(r.losses),
         }));
+    }
+
+    /** A single user's all-time record (for viewers who aren't at a table). */
+    async getRecord(userId: string): Promise<PlayerRecord> {
+        const rows = await this.q(
+            `SELECT r.wins, r.losses FROM (SELECT $1::text AS user_id) p
+             CROSS JOIN LATERAL (${RECORD_SUBQUERY}) r`,
+            [userId],
+        );
+        return { wins: Number(rows[0]?.wins ?? 0), losses: Number(rows[0]?.losses ?? 0) };
     }
 
     async addPlayer(gameId: string, userId: string): Promise<void> {
@@ -317,11 +401,23 @@ export class Store {
         );
     }
 
+    /** Give up a seat entirely — only valid before a game starts. */
     async removePlayer(gameId: string, userId: string): Promise<void> {
         await this.q(`DELETE FROM games_game_players WHERE game_id = $1 AND user_id = $2`, [
             gameId,
             userId,
         ]);
+    }
+
+    /**
+     * Drop a finished game off a player's list while keeping the seat on record,
+     * so the result still counts toward their wins and losses.
+     */
+    async hidePlayer(gameId: string, userId: string): Promise<void> {
+        await this.q(
+            `UPDATE games_game_players SET hidden = true WHERE game_id = $1 AND user_id = $2`,
+            [gameId, userId],
+        );
     }
 
     /** Public lobby games still open to join (not full, in lobby). */
@@ -340,12 +436,12 @@ export class Store {
         return rows.map(mapGame);
     }
 
-    /** Every game the user is a participant in. */
+    /** Every game the user is a participant in and hasn't cleared from their list. */
     async listMyGames(userId: string): Promise<GameRow[]> {
         const rows = await this.q(
             `SELECT g.* FROM games_games g
              JOIN games_game_players p ON p.game_id = g.id
-             WHERE p.user_id = $1
+             WHERE p.user_id = $1 AND NOT p.hidden
              ORDER BY g.updated_at DESC LIMIT 50`,
             [userId],
         );
@@ -359,7 +455,7 @@ export class Store {
             `INSERT INTO games_game_invites (id, game_id, inviter_id, invitee_id)
              VALUES ($1, $2, $3, $4)
              ON CONFLICT (game_id, invitee_id) DO UPDATE SET status = 'pending'`,
-            [newId(), gameId, inviterId, inviteeId],
+            [await this.uniqueId('games_game_invites'), gameId, inviterId, inviteeId],
         );
     }
 

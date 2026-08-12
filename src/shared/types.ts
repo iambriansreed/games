@@ -13,12 +13,22 @@ export interface PublicUser {
     picture: string | null;
 }
 
+/**
+ * A player's all-time record, derived from finished games: a win is a finished
+ * game they won, a loss is one someone else won.
+ */
+export interface PlayerRecord {
+    wins: number;
+    losses: number;
+}
+
 /** A seat at a game table. */
 export interface GamePlayer {
     userId: string;
     name: string | null;
     picture: string | null;
     seat: number;
+    record: PlayerRecord;
 }
 
 /** Summary of a game for lobby lists (no full state). */

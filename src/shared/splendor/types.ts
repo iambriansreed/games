@@ -54,6 +54,11 @@ export interface SplendorState {
     nobles: SplendorNoble[];
     /** Seat index of the player to move. */
     current: number;
+    /**
+     * Seat that opened the game, chosen at random rather than always seat 0.
+     * The final round ends when play wraps back around to this seat.
+     */
+    startSeat: number;
     turn: number;
     log: string[];
     winnerId: string | null;
@@ -71,4 +76,6 @@ export type SplendorAction =
     | { type: 'take'; gems: Gem[]; returns?: Gem[] }
     | { type: 'reserve'; cardId?: string; level?: Level; returns?: Gem[] }
     | { type: 'buy'; cardId: string }
-    | { type: 'chooseNoble'; nobleId: string };
+    | { type: 'chooseNoble'; nobleId: string }
+    /** Pass without acting — only legal on your opening turn (see canSkip). */
+    | { type: 'skip' };

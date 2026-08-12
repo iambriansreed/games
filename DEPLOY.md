@@ -25,7 +25,7 @@ In the Railway service → **Settings → Networking → Custom Domain**, add
    ID → Web application**.
 2. **Authorized redirect URIs** — add both:
    - `https://games.iambrian.com/api/auth/google/callback` (production)
-   - `https://local.games.iambrian.com/api/auth/google/callback` (local dev)
+   - `http://127.0.0.1:4567/api/auth/google/callback` (local dev)
 3. Copy the client ID/secret into Railway service **Variables**:
    - `GOOGLE_CLIENT_ID`
    - `GOOGLE_CLIENT_SECRET`

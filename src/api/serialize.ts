@@ -8,6 +8,7 @@ export function toPlayers(rows: GamePlayerRow[]): GamePlayer[] {
         name: r.name,
         picture: r.picture,
         seat: r.seat,
+        record: { wins: r.wins, losses: r.losses },
     }));
 }
 

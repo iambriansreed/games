@@ -18,13 +18,18 @@ import {
     SplendorPlayer,
     SplendorState,
 } from '../../../shared/splendor/types';
-import { bonuses, canAfford, isHidden, TOKEN_LIMIT, totalTokens } from './logic';
+import { bonuses, canAfford, canSkip, isHidden, TOKEN_LIMIT, totalTokens } from './logic';
 import { api } from '../../api';
 import { navigate } from '../../router';
 
 import './splendor.css';
 
 const COLORS: CardColor[] = ['white', 'blue', 'green', 'red', 'brown'];
+
+// How long a player can go without touching the screen before the turn
+// announcement replays, and the gestures that count as "still here".
+const IDLE_NUDGE_MS = 30_000;
+const IDLE_EVENTS = ['pointerdown', 'keydown', 'touchstart', 'wheel'] as const;
 
 // Selection effects for bank/return tokens (passed via Token's `style` prop, since
 // the Token component carries no className). `--pair` adds the outer glow ring.
@@ -51,8 +56,9 @@ export function SplendorBoard({
     me: PublicUser;
     dispatch: (action: unknown) => void;
     onToast: (msg: string) => void;
-    // The animation tester remounts the board per step with fresh (turn 1) seeds;
-    // it sets this so each step doesn't fire the game-start turn flash.
+    // The animation tester drives the board through scripted frames; it sets this
+    // so the flashes it isn't demonstrating — the game-start announcement and the
+    // idle nudge — stay out of the way.
     suppressStartFlash?: boolean;
 }) {
     const state = detail.state as SplendorState;
@@ -62,6 +68,9 @@ export function SplendorBoard({
     const pendingNoble = state.pendingNoble;
     const mustChooseNoble = pendingNoble != null && pendingNoble.seat === mySeat;
     const canAct = isMyTurn && pendingNoble == null;
+    // Passing is offered only on your opening turn, which — with the randomised
+    // starting seat — keeps the same players from always committing first.
+    const canSkipNow = canAct && canSkip(state);
 
     const [picks, setPicks] = useState<Gem[]>([]);
     const [menu, setMenu] = useState<{
@@ -423,6 +432,16 @@ export function SplendorBoard({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rainbowSig]);
 
+    // Raise the full-screen "whose turn" announcement. Others' turns auto-dismiss;
+    // your own stays put until you tap Continue.
+    const flashSeq = useRef(0);
+    function announceTurn(mine: boolean) {
+        flashSeq.current += 1;
+        setTurnFlash({ mine, name: seatName(state.current), key: flashSeq.current });
+        window.clearTimeout(turnFlashTimer.current);
+        if (!mine) turnFlashTimer.current = window.setTimeout(() => setTurnFlash(null), 1600);
+    }
+
     // Announce each turn with a full-screen flash (your turn, or whose it is).
     // Fires on every turn change, plus once at game start (first render on turn 1)
     // so the opening turn is announced too. A mid-game reload (turn > 1) seeds
@@ -435,13 +454,40 @@ export function SplendorBoard({
         const isStart = prev === null && !suppressStartFlash && state.turn === 1;
         const isChange = prev !== null && prev !== state.current;
         if (!isStart && !isChange) return;
-        const mine = isMyTurn;
-        setTurnFlash((f) => ({ mine, name: seatName(state.current), key: (f?.key ?? 0) + 1 }));
-        window.clearTimeout(turnFlashTimer.current);
-        // Others' turns auto-dismiss; your own turn stays until you click Continue.
-        if (!mine) turnFlashTimer.current = window.setTimeout(() => setTurnFlash(null), 1600);
+        announceTurn(isMyTurn);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [state.current]);
+
+    // Nudge idle players: 30 seconds without touching the screen and the turn
+    // announcement replays, so a table doesn't quietly stall on someone who put
+    // their phone down. Everyone idle gets reminded whose turn it is, not just
+    // the active player. Any interaction restarts the clock — including tapping
+    // Continue — and staying idle nudges again every 30 seconds. Re-arms on each
+    // turn change, since the turn flash has just played anyway.
+    //
+    // Held back while you have a move in progress: the flash covers the board and
+    // wants a tap to clear, so throwing it over an open card menu or the
+    // return-tokens prompt would interrupt someone who is mid-decision, not idle.
+    const midMove = menu != null || pending != null || reservedView != null || picks.length > 0;
+    useEffect(() => {
+        if (suppressStartFlash || state.winnerId || midMove || mustChooseNoble) return;
+        let timer = 0;
+        const nudge = () => {
+            announceTurn(isMyTurn);
+            timer = window.setTimeout(nudge, IDLE_NUDGE_MS);
+        };
+        const restart = () => {
+            window.clearTimeout(timer);
+            timer = window.setTimeout(nudge, IDLE_NUDGE_MS);
+        };
+        restart();
+        for (const e of IDLE_EVENTS) window.addEventListener(e, restart, { passive: true });
+        return () => {
+            window.clearTimeout(timer);
+            for (const e of IDLE_EVENTS) window.removeEventListener(e, restart);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [state.current, state.winnerId, isMyTurn, suppressStartFlash, midMove, mustChooseNoble]);
 
     // Brief shake to signal a card the player can neither buy nor reserve.
     function shake(el: HTMLElement) {
@@ -662,13 +708,30 @@ export function SplendorBoard({
                         <div className="turn-flash-text">
                             {turnFlash.mine ? 'Your turn' : `${turnFlash.name}’s turn`}
                         </div>
+                        {turnFlash.mine && canSkipNow && (
+                            <div className="turn-flash-sub">Opening round — you may pass</div>
+                        )}
                         {turnFlash.mine && (
-                            <button
-                                className="token-btn token-btn--confirm turn-flash-continue"
-                                onClick={() => setTurnFlash(null)}
-                            >
-                                Continue
-                            </button>
+                            <div className="turn-flash-actions">
+                                <button
+                                    className="token-btn token-btn--confirm turn-flash-continue"
+                                    onClick={() => setTurnFlash(null)}
+                                >
+                                    Continue
+                                </button>
+                                {canSkipNow && (
+                                    <button
+                                        className="token-btn turn-flash-skip"
+                                        onClick={() => {
+                                            setTurnFlash(null);
+                                            reset();
+                                            dispatch({ type: 'skip' });
+                                        }}
+                                    >
+                                        Skip turn
+                                    </button>
+                                )}
+                            </div>
                         )}
                     </div>
                 </div>

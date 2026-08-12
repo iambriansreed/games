@@ -47,8 +47,8 @@ function makeDetail(state: SplendorState, meId: string): GameDetail {
         maxPlayers: 4,
         minPlayers: 2,
         players: [
-            { userId: meId, name: 'You', picture: null, seat: 0 },
-            { userId: BOT_ID, name: 'Dev Bot', picture: null, seat: 1 },
+            { userId: meId, name: 'You', picture: null, seat: 0, record: { wins: 0, losses: 0 } },
+            { userId: BOT_ID, name: 'Dev Bot', picture: null, seat: 1, record: { wins: 3, losses: 1 } },
         ],
         winnerId: state.winnerId,
         createdAt: ISO,
@@ -85,7 +85,9 @@ function buildSteps(meId: string): AnimStep[] {
     });
     const base = (): SplendorState => {
         const s = createInitialState([meId, BOT_ID], ISO);
+        s.startSeat = 0;
         s.current = 0; // your turn by default
+        s.turn = 3; // past the opening round, so no skip offer clutters the frames
         return s;
     };
 
