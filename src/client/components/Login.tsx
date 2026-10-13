@@ -1,3 +1,5 @@
+import { Footer } from './Footer';
+
 const ERRORS: Record<string, string> = {
     auth_state: 'Sign-in expired. Please try again.',
     auth_failed: 'Sign-in failed. Please try again.',
@@ -18,6 +20,7 @@ export function Login() {
                     Continue with Google
                 </a>
             </div>
+            <Footer />
         </div>
     );
 }

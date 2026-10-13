@@ -8,6 +8,7 @@ import { Header } from './components/Header';
 import { Lobby } from './components/Lobby';
 import { GameView } from './components/GameView';
 import { Settings } from './components/Settings';
+import { Footer } from './components/Footer';
 import { AnimationTester } from './components/splendor/AnimationTester';
 
 type AuthState =
@@ -132,6 +133,7 @@ export function App() {
                     <Lobby me={auth.user} />
                 )}
             </main>
+            {route.view !== 'game' && route.view !== 'dev-animations' && <Footer />}
         </div>
     );
 }
