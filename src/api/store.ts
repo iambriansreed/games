@@ -67,6 +67,11 @@ const SCHEMA = `
     ALTER TABLE games_game_players
         ADD COLUMN IF NOT EXISTS hidden boolean NOT NULL DEFAULT false;
 
+    -- The last few pre-move states, so a player who looked away can replay what
+    -- their opponents did. Added separately so existing tables pick it up on boot.
+    ALTER TABLE games_games
+        ADD COLUMN IF NOT EXISTS history jsonb;
+
     CREATE TABLE IF NOT EXISTS games_game_invites (
         id text PRIMARY KEY,
         game_id text NOT NULL REFERENCES games_games (id) ON DELETE CASCADE,
@@ -123,6 +128,7 @@ function mapGame(r: Record<string, unknown>): GameRow {
         max_players: Number(r.max_players),
         min_players: Number(r.min_players),
         state: r.state ?? null,
+        history: Array.isArray(r.history) ? (r.history as unknown[]) : null,
         winner_id: (r.winner_id as string) ?? null,
         created_at: toIso(r.created_at),
         updated_at: toIso(r.updated_at),
@@ -334,7 +340,7 @@ export class Store {
 
     async updateGame(
         id: string,
-        patch: { state?: unknown; status?: GameStatus; winnerId?: string | null },
+        patch: { state?: unknown; history?: unknown[]; status?: GameStatus; winnerId?: string | null },
     ): Promise<void> {
         const sets: string[] = ['updated_at = now()'];
         const vals: unknown[] = [];
@@ -342,6 +348,10 @@ export class Store {
         if (patch.state !== undefined) {
             sets.push(`state = $${++i}`);
             vals.push(JSON.stringify(patch.state));
+        }
+        if (patch.history !== undefined) {
+            sets.push(`history = $${++i}`);
+            vals.push(JSON.stringify(patch.history));
         }
         if (patch.status !== undefined) {
             sets.push(`status = $${++i}`);

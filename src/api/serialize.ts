@@ -39,9 +39,14 @@ export function buildDetail(
     const youSeat = userId ? players.find((p) => p.user_id === userId)?.seat ?? null : null;
     const state =
         game.state && game.status !== 'lobby' ? mod.viewFor(game.state, userId) : game.state ?? null;
+    const history =
+        game.history && game.history.length && game.status !== 'lobby'
+            ? game.history.map((s) => mod.viewFor(s, userId))
+            : undefined;
     return {
         ...buildSummary(game, players),
         state,
+        ...(history ? { history } : {}),
         youSeat,
     };
 }

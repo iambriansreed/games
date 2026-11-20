@@ -35,6 +35,8 @@ export interface GameRow {
     max_players: number;
     min_players: number;
     state: unknown;
+    /** The states before each of the last few actions (see routes: HISTORY_LIMIT). */
+    history: unknown[] | null;
     winner_id: string | null;
     created_at: string;
     updated_at: string;

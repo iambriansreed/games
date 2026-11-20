@@ -122,7 +122,11 @@ button {
     position: sticky;
     top: 0;
     background: var(--bg);
-    z-index: 10;
+    /* Above anything the board lifts in place — a selected bank token or a card
+       with its menu open sits at z 60 and must slide *under* the header when the
+       page scrolls — but below the board's floating popups, flashes and overlays
+       (70 and up), which may legitimately cover it. */
+    z-index: 65;
 }
 
 .brand {
@@ -719,4 +723,97 @@ button {
         opacity: 1;
         transform: translateX(-50%) translateY(0) scale(1);
     }
+}
+
+/* ---- Soundboard (/dev/sounds, unlisted) ---- */
+.soundboard {
+    max-width: 640px;
+    margin: 0 auto;
+}
+
+.soundboard-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+
+    h2 {
+        margin-bottom: 4px;
+    }
+
+    .settings-hint {
+        margin-top: 0;
+    }
+}
+
+.soundboard-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.sfx-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.sfx-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 0;
+}
+
+.sfx-row + .sfx-row {
+    border-top: 0.5px solid var(--border);
+}
+
+.sfx-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.sfx-label {
+    font-weight: 600;
+    transition: color 0.15s ease;
+}
+
+/* The row lights up gold while its sound is playing. */
+.sfx-row.is-playing .sfx-label {
+    color: var(--gold);
+}
+
+.sfx-meta {
+    font-size: 12px;
+
+    code {
+        font-size: 12px;
+    }
+}
+
+.sfx-when {
+    margin: 0;
+    font-size: 13px;
+}
+
+.sfx-buttons {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.sfx-buttons .btn {
+    padding: 6px 10px;
+    font-size: 13px;
+}
+
+.sfx-variant {
+    min-width: 34px;
+    font-variant-numeric: tabular-nums;
 }

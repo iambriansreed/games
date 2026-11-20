@@ -51,6 +51,12 @@ export interface GameSummary {
 /** A full game including its (player-scoped) state view. */
 export interface GameDetail extends GameSummary {
     state: unknown;
+    /**
+     * The states that preceded each of the last few actions, oldest first and
+     * redacted for the viewer exactly like `state`, so a client can rewind and
+     * replay the moves it missed. Absent before the first move.
+     */
+    history?: unknown[];
     /** The current player's seat index, or null if not a participant. */
     youSeat: number | null;
 }

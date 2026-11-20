@@ -5,6 +5,7 @@ import { getSocket } from '../socket';
 import { navigate } from '../router';
 import { InvitePanel } from './InvitePanel';
 import { SplendorBoard } from './splendor/SplendorBoard';
+import { playSfx } from '../sfx';
 
 export function GameView({
     gameId,
@@ -75,6 +76,7 @@ export function GameView({
                 const d = await api.action(gameId, action);
                 setDetail(d);
             } catch (e) {
+                playSfx('error');
                 showToast(e instanceof ApiError ? e.message : 'Illegal move');
             }
         },

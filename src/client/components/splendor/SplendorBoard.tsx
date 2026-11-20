@@ -2,8 +2,10 @@ import {
     CSSProperties,
     useEffect,
     useLayoutEffect,
+    useMemo,
     useRef,
     useState,
+    type MouseEvent,
     type MouseEventHandler,
     type RefObject,
 } from 'react';
@@ -21,6 +23,7 @@ import {
 import { bonuses, canAfford, canSkip, isHidden, TOKEN_LIMIT, totalTokens } from './logic';
 import { api } from '../../api';
 import { navigate } from '../../router';
+import { playSfx } from '../../sfx';
 
 import './splendor.css';
 
@@ -31,8 +34,18 @@ const COLORS: CardColor[] = ['white', 'blue', 'green', 'red', 'brown'];
 const IDLE_NUDGE_MS = 30_000;
 const IDLE_EVENTS = ['pointerdown', 'keydown', 'touchstart', 'wheel'] as const;
 
+// Replaying the moves since your last turn: how long the rewound board holds
+// before the first move plays, and how long each move gets for its animations.
+const REPLAY_REWIND_MS = 700;
+const REPLAY_STEP_MS = 2800;
+// The rainbow's run time — fixed, however many arcs it draws.
+const RAINBOW_MS = 6500;
+
 // Selection effects for bank/return tokens (passed via Token's `style` prop, since
 // the Token component carries no className). `--pair` adds the outer glow ring.
+// The lift sits above the board's backdrop (z 50) but below the app header (z 65,
+// see styles.css), so a selected chip slides under the header when the page is
+// scrolled rather than drawing over it.
 const SEL_SHADOW = '0 0 0 3px #f2f0ea, 0 8px 16px rgba(0, 0, 0, 0.5)';
 const PAIR_SHADOW = '0 0 0 3px #f2f0ea, 0 0 0 6px rgba(242, 240, 234, 0.35), 0 8px 16px rgba(0, 0, 0, 0.5)';
 const selectStyle = (selected: boolean, pair = false): CSSProperties =>
@@ -61,8 +74,13 @@ export function SplendorBoard({
     // idle nudge — stay out of the way.
     suppressStartFlash?: boolean;
 }) {
-    const state = detail.state as SplendorState;
+    const live = detail.state as SplendorState;
     const mySeat = detail.youSeat;
+    // While replaying, the board renders a frame from the recent history instead
+    // of the live state; stepping between frames fires the same diff-driven
+    // animations a live move would (see startReplay).
+    const [replay, setReplay] = useState<{ frames: SplendorState[]; index: number } | null>(null);
+    const state = replay ? replay.frames[replay.index] : live;
     const myPlayer = mySeat != null ? state.players[mySeat] : null;
     const isMyTurn = myPlayer != null && state.current === mySeat && !state.winnerId;
     const pendingNoble = state.pendingNoble;
@@ -93,10 +111,10 @@ export function SplendorBoard({
         w: number;
         h: number;
     } | null>(null);
-    // Bumped to (re)play the celebratory rainbow when a player first holds one
-    // card of every colour; `rainbowOn` clears it after the animation.
-    const [rainbowKey, setRainbowKey] = useState(0);
-    const [rainbowOn, setRainbowOn] = useState(false);
+    // The celebratory rainbow: `count` arcs (one per full set of colours the
+    // player now holds), remounted via `key` each time it fires and cleared by a
+    // timer once the fixed-length animation finishes.
+    const [rainbow, setRainbow] = useState<{ key: number; count: number } | null>(null);
     const rainbowTimer = useRef<number>();
     // Full-screen "whose turn" announcement, replayed (via `key`) each turn change
     // and cleared by a timer once its fade-out finishes.
@@ -222,10 +240,15 @@ export function SplendorBoard({
             const before = prev[seat];
             if (!before) return;
             const gained: Gem[] = [];
+            let lost = 0;
             for (const g of GEMS) {
                 for (let k = (after[g] ?? 0) - (before[g] ?? 0); k > 0; k--) gained.push(g);
+                lost += Math.max(0, (before[g] ?? 0) - (after[g] ?? 0));
             }
             if (gained.length) flyGemsToSeat(seat, gained);
+            // Chips going back to the bank — paying for a card, or returning the
+            // excess over the limit — rattle, for every seat.
+            if (lost) playSfx('coins', 150);
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tokenSig]);
@@ -279,6 +302,16 @@ export function SplendorBoard({
         });
         const prevSnap = cardSnapRef.current;
         cardSnapRef.current = next;
+
+        // Cards dealt from the deck into vacated slots — one slide each, timed
+        // for after the bought or reserved card has flown off.
+        if (prevSnap.size > 0) {
+            let dealt = 0;
+            next.forEach((_, id) => {
+                if (!prevSnap.has(id)) dealt += 1;
+            });
+            for (let i = 0; i < dealt; i++) playSfx('card-slide', 450 + i * 120);
+        }
 
         const holdings = state.players.map((p) => ({
             cards: new Set(p.cards.map((c) => c.id)),
@@ -371,6 +404,7 @@ export function SplendorBoard({
         tile.style.height = `${from.height}px`;
         layer.appendChild(tile);
         tile.getBoundingClientRect(); // reflow
+        playSfx('card-slide');
 
         let scale = Math.min(0.55, (t.height || 26) / from.height);
         if (!isFinite(scale) || scale <= 0) scale = 0.4;
@@ -395,6 +429,7 @@ export function SplendorBoard({
         );
         const cleanup = () => tile.remove();
         anim.onfinish = () => {
+            playSfx('noble');
             target.animate(
                 [{ transform: 'scale(1)' }, { transform: 'scale(1.18)' }, { transform: 'scale(1)' }],
                 { duration: 280, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)' },
@@ -409,28 +444,38 @@ export function SplendorBoard({
         setTimeout(cleanup, 1500);
     }
 
-    // Rainbow! Fire the celebratory arc the first time any player holds at least
-    // one card of every colour. Diffs against the previous render so it plays
-    // once per player, on the move that completes the set.
-    const rainbowSig = state.players
-        .map((p) => (CARD_COLORS.every((c) => bonuses(p)[c] >= 1) ? '1' : '0'))
-        .join('');
-    const prevRainbowRef = useRef<boolean[] | null>(null);
+    // Rainbow! Fire the celebratory arc whenever a player completes another full
+    // set of colours — one card of every colour draws a rainbow, two of every
+    // colour a double rainbow, and so on. Diffs each seat's sets (the fewest
+    // cards it holds of any one colour) against the previous render, so it plays
+    // once per set, on the move that completes it.
+    const rainbowSets = state.players.map((p) => {
+        const b = bonuses(p);
+        return Math.min(...CARD_COLORS.map((c) => b[c]));
+    });
+    const rainbowSig = rainbowSets.join(',');
+    const prevRainbowRef = useRef<number[] | null>(null);
     useEffect(() => {
-        const curr = state.players.map((p) => CARD_COLORS.every((c) => bonuses(p)[c] >= 1));
         const prev = prevRainbowRef.current;
-        prevRainbowRef.current = curr;
+        prevRainbowRef.current = rainbowSets;
         if (!prev) return; // seed only
-        curr.forEach((has, seat) => {
-            if (has && !prev[seat]) {
-                setRainbowKey((k) => k + 1);
-                setRainbowOn(true);
-                window.clearTimeout(rainbowTimer.current);
-                rainbowTimer.current = window.setTimeout(() => setRainbowOn(false), 6500);
-            }
+        rainbowSets.forEach((sets, seat) => {
+            if (sets > (prev[seat] ?? 0)) fireRainbow(sets);
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rainbowSig]);
+
+    const rainbowSeq = useRef(0);
+    function fireRainbow(count: number) {
+        rainbowSeq.current += 1;
+        setRainbow({ key: rainbowSeq.current, count });
+        window.clearTimeout(rainbowTimer.current);
+        rainbowTimer.current = window.setTimeout(() => setRainbow(null), RAINBOW_MS);
+        // Twinkles sprinkled through the arc's sweep-in — a couple more for each
+        // extra arc, but always inside the same window.
+        const bursts = Math.min(3 + (count - 1) * 2, 7);
+        for (let i = 0; i < bursts; i++) playSfx('twinkle', 250 + (i * 2400) / bursts);
+    }
 
     // Raise the full-screen "whose turn" announcement. Others' turns auto-dismiss;
     // your own stays put until you tap Continue.
@@ -438,6 +483,7 @@ export function SplendorBoard({
     function announceTurn(mine: boolean) {
         flashSeq.current += 1;
         setTurnFlash({ mine, name: seatName(state.current), key: flashSeq.current });
+        playSfx(mine ? 'turn-mine' : 'turn-other');
         window.clearTimeout(turnFlashTimer.current);
         if (!mine) turnFlashTimer.current = window.setTimeout(() => setTurnFlash(null), 1600);
     }
@@ -451,6 +497,8 @@ export function SplendorBoard({
         const prev = prevCurrentRef.current;
         prevCurrentRef.current = state.current;
         if (state.winnerId) return;
+        // Replay frames change seats too, but that's history — don't announce it.
+        if (replay) return;
         const isStart = prev === null && !suppressStartFlash && state.turn === 1;
         const isChange = prev !== null && prev !== state.current;
         if (!isStart && !isChange) return;
@@ -468,9 +516,10 @@ export function SplendorBoard({
     // Held back while you have a move in progress: the flash covers the board and
     // wants a tap to clear, so throwing it over an open card menu or the
     // return-tokens prompt would interrupt someone who is mid-decision, not idle.
+    // Likewise while a replay is running: they're watching, not idle.
     const midMove = menu != null || pending != null || reservedView != null || picks.length > 0;
     useEffect(() => {
-        if (suppressStartFlash || state.winnerId || midMove || mustChooseNoble) return;
+        if (suppressStartFlash || state.winnerId || midMove || mustChooseNoble || replay) return;
         let timer = 0;
         const nudge = () => {
             announceTurn(isMyTurn);
@@ -487,7 +536,65 @@ export function SplendorBoard({
             for (const e of IDLE_EVENTS) window.removeEventListener(e, restart);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [state.current, state.winnerId, isMyTurn, suppressStartFlash, midMove, mustChooseNoble]);
+    }, [state.current, state.winnerId, isMyTurn, suppressStartFlash, midMove, mustChooseNoble, replay]);
+
+    // The moves since your last turn, as frames to replay: the state before each
+    // opponent action (from the server's recent history), then the live state.
+    // Walks back from the newest until it reaches a state where you were to move
+    // — that action was yours, and everything before it you played through.
+    const replayFrames = useMemo(() => {
+        if (mySeat == null || live.winnerId) return [] as SplendorState[];
+        const hist = (detail.history ?? []) as SplendorState[];
+        const frames: SplendorState[] = [live];
+        for (let i = hist.length - 1; i >= 0; i--) {
+            if (hist[i].current === mySeat) break;
+            frames.unshift(hist[i]);
+        }
+        return frames.length > 1 ? frames : [];
+    }, [detail, live, mySeat]);
+    const replayMoves = Math.max(0, replayFrames.length - 1);
+
+    // Rewind the board to before the opponents' moves, then play them forward one
+    // frame per REPLAY_STEP_MS; the diff-driven effects animate every transition
+    // exactly as they did live. Ends on the live state, ready for your move.
+    const replayTimer = useRef<number>();
+    function startReplay() {
+        const frames = replayFrames;
+        if (frames.length < 2) return;
+        playSfx('rewind');
+        setTurnFlash(null);
+        setReplay({ frames, index: 0 });
+        let index = 0;
+        const step = () => {
+            index += 1;
+            if (index >= frames.length) return setReplay(null);
+            setReplay({ frames, index });
+            replayTimer.current = window.setTimeout(step, REPLAY_STEP_MS);
+        };
+        window.clearTimeout(replayTimer.current);
+        replayTimer.current = window.setTimeout(step, REPLAY_REWIND_MS);
+    }
+    function endReplay() {
+        window.clearTimeout(replayTimer.current);
+        setReplay(null);
+    }
+    useEffect(() => () => window.clearTimeout(replayTimer.current), []);
+
+    // What the move between two frames did, for the replay caption — the engine's
+    // log entries that move appended, with the mover's id swapped for their name
+    // ("brave-otter took red, blue" → "Alex took red, blue").
+    function describeMove(before: SplendorState, after: SplendorState): string {
+        const name = seatName(before.current);
+        const entries = after.log.slice(before.log.length);
+        if (entries.length === 0) return `${name} moved`;
+        return entries.map((e) => e.replace(/^\S+/, name)).join(' · ');
+    }
+
+    // A refused action: a dull thud, then the reason.
+    function warn(msg: string) {
+        playSfx('error');
+        onToast(msg);
+    }
 
     // Brief shake to signal a card the player can neither buy nor reserve.
     function shake(el: HTMLElement) {
@@ -499,16 +606,17 @@ export function SplendorBoard({
 
     function openCardMenu(card: SplendorCard, source: 'board' | 'reserved', el: HTMLElement) {
         if (pending || !myPlayer) return; // mid token-return flow, or spectator
-        if (state.winnerId) return onToast('The game is over');
-        if (!isMyTurn) return onToast('It’s not your turn');
-        if (pendingNoble) return onToast('Choose a noble to finish your turn');
+        if (state.winnerId) return warn('The game is over');
+        if (!isMyTurn) return warn('It’s not your turn');
+        if (pendingNoble) return warn('Choose a noble to finish your turn');
         const canBuyNow = canAfford(myPlayer, card);
         const canReserveNow = source === 'board' && myPlayer.reserved.length < 3;
         if (!canBuyNow && !canReserveNow) {
             shake(el); // nothing the player can do — nudge the card
-            onToast('You can neither buy nor reserve that card');
+            warn('You can neither buy nor reserve that card');
             return;
         }
+        playSfx('card-slide');
         setMenu({ card, source, rect: el.getBoundingClientRect(), el });
     }
 
@@ -525,6 +633,7 @@ export function SplendorBoard({
     function flyCardNode(node: HTMLElement, from: DOMRect, targetEl: Element | null) {
         const layer = flyLayerRef.current;
         if (!layer || !targetEl) return;
+        playSfx('card-slide');
         const t = targetEl.getBoundingClientRect();
         node.classList.remove('is-lifted');
         node.classList.add('flying-card');
@@ -545,6 +654,7 @@ export function SplendorBoard({
         const finish = () => {
             if (done) return;
             done = true;
+            playSfx('card-land');
             // Bump the destination so the card visibly lands in it.
             (targetEl as HTMLElement).animate?.(
                 [{ transform: 'scale(1)' }, { transform: 'scale(1.18)' }, { transform: 'scale(1)' }],
@@ -601,6 +711,7 @@ export function SplendorBoard({
     }
 
     function openReserved(card: SplendorCard, el: HTMLElement) {
+        playSfx('card-slide');
         const sample = screenRef.current?.querySelector('.cards .card');
         const sr = sample?.getBoundingClientRect();
         setReservedView({
@@ -633,10 +744,10 @@ export function SplendorBoard({
 
     function clickGem(g: Gem) {
         if (pending) return; // mid token-return flow
-        if (state.winnerId) return onToast('The game is over');
-        if (!isMyTurn) return onToast('It’s not your turn');
-        if (pendingNoble) return onToast('Choose a noble to finish your turn');
-        if (g === 'gold') return onToast('Gold is only gained by reserving a card');
+        if (state.winnerId) return warn('The game is over');
+        if (!isMyTurn) return warn('It’s not your turn');
+        if (pendingNoble) return warn('Choose a noble to finish your turn');
+        if (g === 'gold') return warn('Gold is only gained by reserving a card');
 
         const count = picks.filter((x) => x === g).length;
         const isPair = picks.length === 2 && picks[0] === picks[1];
@@ -644,35 +755,59 @@ export function SplendorBoard({
         if (count > 0) {
             if (picks.length === 1) {
                 // Second tap on a lone pick → take two of this colour.
-                if (state.bank[g] >= 4) return setPicks([g, g]);
-                return onToast(`You can only take 2 ${label(g)} when 4+ remain in the bank`);
+                if (state.bank[g] < 4) return warn(`You can only take 2 ${label(g)} when 4+ remain in the bank`);
+                playSfx('chip-pick');
+                return setPicks([g, g]);
             }
+            playSfx('chip-unpick');
             return setPicks(picks.filter((x) => x !== g)); // deselect one of three
         }
-        if (isPair) return onToast('You’re taking a pair — confirm or clear it first');
-        if (picks.length >= 3) return onToast('You can take at most 3 different tokens');
-        if (state.bank[g] < 1) return onToast(`No ${label(g)} tokens left in the bank`);
+        if (isPair) return warn('You’re taking a pair — confirm or clear it first');
+        if (picks.length >= 3) return warn('You can take at most 3 different tokens');
+        if (state.bank[g] < 1) return warn(`No ${label(g)} tokens left in the bank`);
+        playSfx('chip-pick');
         setPicks([...picks, g]);
     }
 
     function clickReturn(g: Gem) {
         if (!pending || !myPlayer) return;
-        setReturns((prev) => {
-            const used = prev.filter((x) => x === g).length;
-            if (used >= heldAfterPending(g) || prev.length >= pending.over) return prev;
-            return [...prev, g];
-        });
+        const used = returns.filter((x) => x === g).length;
+        if (used >= heldAfterPending(g) || returns.length >= pending.over) return playSfx('error');
+        playSfx('chip-pick');
+        setReturns([...returns, g]);
     }
 
     // Deselect one token of a colour you'd marked for return.
     function removeReturn(g: Gem) {
-        setReturns((prev) => {
-            const i = prev.lastIndexOf(g);
-            if (i === -1) return prev;
-            const next = [...prev];
-            next.splice(i, 1);
-            return next;
-        });
+        const i = returns.lastIndexOf(g);
+        if (i === -1) return;
+        playSfx('chip-unpick');
+        const next = [...returns];
+        next.splice(i, 1);
+        setReturns(next);
+    }
+
+    // Dismiss whatever's open (menu, prompt, preview) with a whoosh.
+    function cancel() {
+        playSfx('cancel');
+        reset();
+    }
+
+    // Every tap on the table answers with a sound. Pieces with their own handler
+    // (bank chips, board cards, reserved cards, buttons) play their own; anything
+    // else — an opponent's tray, your own chips, a noble, an empty slot, the felt
+    // — gives a soft tap, or a chip's click if it was a chip. Clicks only, so a
+    // scroll gesture through the rows stays silent.
+    function tableTap(e: MouseEvent<HTMLElement>) {
+        const el = e.target as HTMLElement;
+        if (el.closest('button, .bank .token, .card[data-card-id], .reserved-card')) return;
+        playSfx(el.closest('.token') ? 'chip-unpick' : 'ui-tap');
+    }
+
+    // Overlays (the your-turn screen, the replay shield, the reserved-card
+    // preview): a soft tap anywhere that isn't one of their buttons.
+    function softTap(e: MouseEvent<HTMLElement>) {
+        if (!(e.target as HTMLElement).closest('button')) playSfx('ui-tap');
     }
 
     const opponents = state.players.map((p, seat) => ({ p, seat })).filter(({ seat }) => seat !== mySeat);
@@ -685,24 +820,62 @@ export function SplendorBoard({
     const winnerPoints = winnerSeat >= 0 ? state.players[winnerSeat].points : 0;
     const lossMargin = myPlayer ? Math.max(0, winnerPoints - myPlayer.points) : 0;
 
+    // Game-flow sounds: the final-round alert as the banner appears, and the
+    // result as the game ends. Both diff against the previous render, so loading
+    // a finished game stays quiet.
+    const prevFlowRef = useRef<{ finalRound: boolean; winnerId: string | null } | null>(null);
+    useEffect(() => {
+        const prev = prevFlowRef.current;
+        prevFlowRef.current = { finalRound: state.finalRound, winnerId: state.winnerId };
+        if (!prev) return; // seed only
+        if (state.winnerId && !prev.winnerId) playSfx(iLost ? 'lose' : 'win');
+        else if (state.finalRound && !prev.finalRound && !state.winnerId) playSfx('final-round');
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [state.finalRound, state.winnerId]);
+
     async function playAgain() {
         try {
             const next = await api.rematch(detail.id);
             navigate(`/g/${next.id}`);
         } catch {
-            onToast('Could not start a rematch');
+            warn('Could not start a rematch');
         }
     }
 
     return (
         <div className={`splendor-board ${iLost ? 'board-lost' : ''}`}>
             <div className="fly-layer" ref={flyLayerRef} />
-            {rainbowOn && <RainbowArc key={rainbowKey} />}
-            {turnFlash && (
+            {rainbow && <RainbowArc key={rainbow.key} count={rainbow.count} />}
+            {replay && (
+                <div className="replay-shield" onClick={softTap}>
+                    <div className="replay-banner">
+                        <span className="replay-tag">Replay</span>
+                        <span className="replay-caption">
+                            {replay.index === 0
+                                ? 'Rewinding…'
+                                : describeMove(replay.frames[replay.index - 1], replay.frames[replay.index])}
+                        </span>
+                        <span className="replay-step">
+                            {Math.max(1, replay.index)}/{replay.frames.length - 1}
+                        </span>
+                        <button
+                            className="token-btn replay-skip"
+                            onClick={() => {
+                                playSfx('ui-tap');
+                                endReplay();
+                            }}
+                        >
+                            Skip
+                        </button>
+                    </div>
+                </div>
+            )}
+            {turnFlash && !replay && (
                 <div
                     key={turnFlash.key}
                     className={`turn-flash ${turnFlash.mine ? 'turn-flash--mine' : ''}`}
                     aria-hidden={!turnFlash.mine}
+                    onClick={turnFlash.mine ? softTap : undefined}
                 >
                     <div className="turn-flash-box">
                         <div className="turn-flash-text">
@@ -715,14 +888,23 @@ export function SplendorBoard({
                             <div className="turn-flash-actions">
                                 <button
                                     className="token-btn token-btn--confirm turn-flash-continue"
-                                    onClick={() => setTurnFlash(null)}
+                                    onClick={() => {
+                                        playSfx('ui-tap');
+                                        setTurnFlash(null);
+                                    }}
                                 >
                                     Continue
                                 </button>
+                                {replayMoves > 0 && (
+                                    <button className="token-btn turn-flash-replay" onClick={startReplay}>
+                                        ↺ Replay last {replayMoves === 1 ? 'move' : `${replayMoves} moves`}
+                                    </button>
+                                )}
                                 {canSkipNow && (
                                     <button
                                         className="token-btn turn-flash-skip"
                                         onClick={() => {
+                                            playSfx('ui-tap');
                                             setTurnFlash(null);
                                             reset();
                                             dispatch({ type: 'skip' });
@@ -737,7 +919,7 @@ export function SplendorBoard({
                 </div>
             )}
             <div className="device">
-                <div className="screen" ref={screenRef}>
+                <div className="screen" ref={screenRef} onClick={tableTap}>
                     {/* Opponents */}
                     {opponents.length > 0 && (
                         <div className="players-scroll" ref={playersScrollRef}>
@@ -879,17 +1061,25 @@ export function SplendorBoard({
                 morphs in place into the return prompt for a seamless transition. */}
             {(ready || pending) && myPlayer && (
                 <>
-                    <div className="backdrop is-open" onClick={() => (pending ? reset() : setPicks([]))} />
+                    <div
+                        className="backdrop is-open"
+                        onClick={() => {
+                            playSfx('cancel');
+                            if (pending) reset();
+                            else setPicks([]);
+                        }}
+                    />
                     <div
                         className={`token-confirm is-open ${pending ? 'token-confirm--return' : ''}`}
                         ref={tokenBarRef}
+                        onClick={tableTap}
                     >
                         {pending ? (
                             <>
                                 <button
                                     className="token-btn token-btn--cancel token-x"
                                     aria-label="Cancel"
-                                    onClick={reset}
+                                    onClick={cancel}
                                 >
                                     ×
                                 </button>
@@ -924,7 +1114,10 @@ export function SplendorBoard({
                                             <span
                                                 className="sel-chip"
                                                 key={g}
-                                                onClick={() => removeReturn(g)}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    removeReturn(g);
+                                                }}
                                                 style={{ cursor: 'pointer' }}
                                                 title="Remove"
                                             >
@@ -948,6 +1141,7 @@ export function SplendorBoard({
                                         style={{ marginLeft: 0 }}
                                         disabled={returns.length !== pending.over}
                                         onClick={() => {
+                                            playSfx('ui-tap');
                                             dispatch({ ...pending.action, returns });
                                             reset();
                                         }}
@@ -969,14 +1163,20 @@ export function SplendorBoard({
                                 </div>
                                 <button
                                     className="token-btn token-btn--confirm"
-                                    onClick={() => submit({ type: 'take', gems: picks }, picks)}
+                                    onClick={() => {
+                                        playSfx('ui-tap');
+                                        submit({ type: 'take', gems: picks }, picks);
+                                    }}
                                 >
                                     Take
                                 </button>
                                 <button
                                     className="token-btn token-btn--cancel"
                                     aria-label="Cancel"
-                                    onClick={() => setPicks([])}
+                                    onClick={() => {
+                                        playSfx('cancel');
+                                        setPicks([]);
+                                    }}
                                 >
                                     ×
                                 </button>
@@ -989,7 +1189,7 @@ export function SplendorBoard({
             {/* Card action menu */}
             {menu && (
                 <>
-                    <div className="backdrop is-open" onClick={reset} />
+                    <div className="backdrop is-open" onClick={cancel} />
                     <div className="card-popup is-open" ref={popupRef}>
                         {myPlayer && canAfford(myPlayer, menu.card) && (
                             <button
@@ -1025,9 +1225,16 @@ export function SplendorBoard({
             {/* Reserved card preview — tap a reserved chip to view it (and buy) */}
             {reservedView && (
                 <>
-                    <div className="backdrop is-open" onClick={() => setReservedView(null)} />
+                    <div
+                        className="backdrop is-open"
+                        onClick={() => {
+                            playSfx('cancel');
+                            setReservedView(null);
+                        }}
+                    />
                     <div
                         ref={reservedPopRef}
+                        onClick={softTap}
                         style={{
                             position: 'fixed',
                             zIndex: 80,
@@ -1084,6 +1291,7 @@ export function SplendorBoard({
                                         key={id}
                                         style={{ cursor: 'pointer', flex: '0 0 auto', minWidth: 80 }}
                                         onClick={() => {
+                                            playSfx('ui-tap');
                                             dispatch({ type: 'chooseNoble', nobleId: id });
                                             reset();
                                         }}
@@ -1118,11 +1326,23 @@ export function SplendorBoard({
                         </p>
                         <div className="game-over-actions">
                             {myPlayer && (
-                                <button className="token-btn token-btn--confirm" onClick={playAgain}>
+                                <button
+                                    className="token-btn token-btn--confirm"
+                                    onClick={() => {
+                                        playSfx('ui-tap');
+                                        void playAgain();
+                                    }}
+                                >
                                     Play again
                                 </button>
                             )}
-                            <button className="token-btn game-over-leave" onClick={() => navigate('/')}>
+                            <button
+                                className="token-btn game-over-leave"
+                                onClick={() => {
+                                    playSfx('ui-tap');
+                                    navigate('/');
+                                }}
+                            >
                                 Leave
                             </button>
                         </div>
@@ -1140,18 +1360,73 @@ function gemVar(g: Gem): string {
 /**
  * A celebratory rainbow that draws from the lower-left, arches over the top of
  * the screen, and lands at the lower-right — seven parallel colour bands that
- * sweep in, hold, then fade. Played when a player first owns one card of every
- * colour. Full-viewport, pointer-transparent, and self-removing via its parent.
+ * sweep in, hold, then fade. Played when a player completes a set of one card
+ * of every colour. `count` is how many full sets they now hold: each extra set
+ * nests another arc inside the last (colours reversed on alternate arcs, as a
+ * real double rainbow's are). Spacing and band width tighten as arcs are added
+ * so every arc stays on screen, and however many there are the whole display
+ * runs for the same RAINBOW_MS — inner arcs start a beat later and all finish
+ * together. Full-viewport, pointer-transparent, and self-removing via its parent.
  */
-function RainbowArc() {
+function RainbowArc({ count }: { count: number }) {
     const bands = ['#e0413b', '#e98c2e', '#e9c83a', '#4f9d6b', '#5a8fd6', '#5b6bd6', '#9b59c6'];
+    const arcs = Math.max(1, count);
+    // Control points run from y=-360 (the outer arc's top band) down to y=420 at
+    // most, which keeps the innermost band's apex above the fold on a phone.
+    const BUDGET = 780;
+    const step = Math.min(32, BUDGET / (6 * arcs + 2.5 * (arcs - 1)));
+    const span = step * (bands.length - 1);
+    const spacing = arcs > 1 ? Math.min(span + 92, (BUDGET - span) / (arcs - 1)) : 0;
+    const strokeWidth = (17 * step) / 32;
+    const total = RAINBOW_MS / 1000;
     return (
         <svg className="rainbow-arc" viewBox="0 0 1000 600" preserveAspectRatio="xMidYMax slice" aria-hidden>
-            {bands.map((color, i) => (
-                <path key={color} d={`M -40 660 Q 500 ${-360 + i * 32} 1040 660`} stroke={color} />
-            ))}
+            {Array.from({ length: arcs }, (_, k) => {
+                const order = k % 2 ? [...bands].reverse() : bands;
+                const delay = Math.min(k * 0.35, total * 0.3);
+                return order.map((color, i) => {
+                    const cy = -360 + k * spacing + i * step;
+                    // Each band's dash length is its own arc length, so every arc
+                    // sweeps in and out across exactly its own span. Carries a unit:
+                    // the keyframes negate it with calc(), which needs a length.
+                    const len = quadLength(-40, 660, 500, cy, 1040, 660);
+                    return (
+                        <path
+                            key={`${k}-${color}`}
+                            d={`M -40 660 Q 500 ${cy} 1040 660`}
+                            stroke={color}
+                            style={
+                                {
+                                    '--len': `${len}px`,
+                                    strokeWidth,
+                                    animationDelay: `${delay}s`,
+                                    animationDuration: `${total - delay}s`,
+                                } as CSSProperties
+                            }
+                        />
+                    );
+                });
+            })}
         </svg>
     );
+}
+
+/** Length of the quadratic Bézier (x0,y0) → control (cx,cy) → (x1,y1), by sampling. */
+function quadLength(x0: number, y0: number, cx: number, cy: number, x1: number, y1: number): number {
+    const STEPS = 64;
+    let len = 0;
+    let px = x0;
+    let py = y0;
+    for (let i = 1; i <= STEPS; i++) {
+        const t = i / STEPS;
+        const u = 1 - t;
+        const x = u * u * x0 + 2 * u * t * cx + t * t * x1;
+        const y = u * u * y0 + 2 * u * t * cy + t * t * y1;
+        len += Math.hypot(x - px, y - py);
+        px = x;
+        py = y;
+    }
+    return Math.round(len);
 }
 
 /**
@@ -1331,6 +1606,9 @@ function flyToken(sourceEl: HTMLElement | null, targetEl: HTMLElement | null, in
         clone.remove();
     };
 
+    // The chip clicks as it leaves the bank, then clacks onto the stack.
+    playSfx('chip-lift', delay);
+
     if (reduce) {
         const a = clone.animate(
             [
@@ -1339,7 +1617,10 @@ function flyToken(sourceEl: HTMLElement | null, targetEl: HTMLElement | null, in
             ],
             { duration: 420, delay, easing: 'ease', fill: 'forwards' },
         );
-        a.onfinish = cleanup;
+        a.onfinish = () => {
+            playSfx('chip-land');
+            cleanup();
+        };
         return;
     }
 
@@ -1402,6 +1683,7 @@ function flyToken(sourceEl: HTMLElement | null, targetEl: HTMLElement | null, in
     );
 
     flight.onfinish = () => {
+        playSfx('chip-land');
         // The chip melts into the real token, which gives a little bump.
         targetEl.animate(
             [{ transform: 'scale(1)' }, { transform: 'scale(1.3)' }, { transform: 'scale(1)' }],

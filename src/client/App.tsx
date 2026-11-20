@@ -10,6 +10,7 @@ import { GameView } from './components/GameView';
 import { Settings } from './components/Settings';
 import { Footer } from './components/Footer';
 import { AnimationTester } from './components/splendor/AnimationTester';
+import { Soundboard } from './components/Soundboard';
 
 type AuthState =
     | { status: 'loading' }
@@ -118,6 +119,12 @@ export function App() {
                 ) : route.view === 'dev-animations' ? (
                     auth.isAdmin ? (
                         <AnimationTester me={auth.user} />
+                    ) : (
+                        <Lobby me={auth.user} />
+                    )
+                ) : route.view === 'dev-sounds' ? (
+                    auth.isAdmin ? (
+                        <Soundboard />
                     ) : (
                         <Lobby me={auth.user} />
                     )

@@ -202,7 +202,7 @@ api.post('/games/:id/start', async (req: Request, res: Response) => {
         }
         const orderedIds = players.slice().sort((a, b) => a.seat - b.seat).map((p) => p.user_id);
         const state = mod.createInitialState(orderedIds, new Date().toISOString());
-        await store().updateGame(game.id, { state, status: 'active' });
+        await store().updateGame(game.id, { state, history: [], status: 'active' });
         const fresh = await store().getGame(game.id);
         await emitGame(game.id);
         emitLobby();
@@ -218,6 +218,11 @@ api.post('/games/:id/start', async (req: Request, res: Response) => {
 // one each. In-memory is fine: a rematch is only ever offered moments after a
 // game ends, well within a single process's lifetime.
 const rematches = new Map<string, string>();
+
+// How many pre-move states to keep per game. A player wants to replay the moves
+// since their last turn: at most three opponents, each of whom may take two
+// actions in a turn (a buy that leaves a noble choice, then the choice).
+const HISTORY_LIMIT = 8;
 
 api.post('/games/:id/rematch', async (req: Request, res: Response) => {
     try {
@@ -278,8 +283,11 @@ api.post('/games/:id/action', async (req: Request, res: Response) => {
         const action = (req.body as { action?: unknown }).action;
         const next = mod.applyAction(game.state, user.id, action);
         const winnerId = mod.winnerId(next);
+        // Keep the state this action was applied to, so clients can replay it.
+        const history = [...(game.history ?? []), game.state].slice(-HISTORY_LIMIT);
         await store().updateGame(game.id, {
             state: next,
+            history,
             status: mod.isFinished(next) ? 'finished' : 'active',
             winnerId: winnerId ?? null,
         });

@@ -5,7 +5,8 @@ export type Route =
     | { view: 'settings' }
     | { view: 'game'; id: string }
     | { view: 'join'; code: string }
-    | { view: 'dev-animations' };
+    | { view: 'dev-animations' }
+    | { view: 'dev-sounds' };
 
 function parse(pathname: string): Route {
     const g = pathname.match(/^\/g\/([^/]+)/);
@@ -14,6 +15,7 @@ function parse(pathname: string): Route {
     if (j) return { view: 'join', code: j[1] };
     if (pathname === '/settings') return { view: 'settings' };
     if (pathname === '/dev/animations') return { view: 'dev-animations' };
+    if (pathname === '/dev/sounds') return { view: 'dev-sounds' };
     return { view: 'lobby' };
 }
 

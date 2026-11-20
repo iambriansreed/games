@@ -3,6 +3,7 @@ import { PublicUser } from '../../shared/types';
 import { api, ApiError } from '../api';
 import { navigate } from '../router';
 import { getStoredTheme, setTheme, Theme } from '../theme';
+import { isSfxOn, playSfx, setSfxOn } from '../sfx';
 
 // Keys/labels mirror SPLENDOR_SCENARIOS in src/shared/splendor/dev.ts.
 const SPLENDOR_DEV_SCENARIOS: { key: string; label: string; description: string }[] = [
@@ -33,6 +34,7 @@ export function Settings({
     onUserUpdated: (user: PublicUser) => void;
 }) {
     const [theme, setThemeState] = useState<Theme>(() => getStoredTheme());
+    const [sfx, setSfxState] = useState<boolean>(() => isSfxOn());
 
     const [name, setName] = useState(user.name ?? '');
     const [busy, setBusy] = useState(false);
@@ -58,6 +60,13 @@ export function Settings({
     function chooseTheme(next: Theme) {
         setTheme(next);
         setThemeState(next);
+    }
+
+    function chooseSfx(on: boolean) {
+        setSfxOn(on);
+        setSfxState(on);
+        // Confirm the choice audibly — the one tap that should always be heard.
+        if (on) playSfx('ui-tap');
     }
 
     const trimmed = name.trim();
@@ -132,6 +141,25 @@ export function Settings({
                         </button>
                     </div>
                 </div>
+            </section>
+
+            <section className="panel">
+                <h2>Sound</h2>
+                <div className="field">
+                    <span>Sound effects</span>
+                    <div className="seg">
+                        <button className={sfx ? 'seg-on' : ''} onClick={() => chooseSfx(true)}>
+                            🔊 On
+                        </button>
+                        <button className={!sfx ? 'seg-on' : ''} onClick={() => chooseSfx(false)}>
+                            🔇 Off
+                        </button>
+                    </div>
+                </div>
+                <p className="muted settings-hint">
+                    Chips clack, cards slide and nobles chime as moves play out — yours and your
+                    opponents’.
+                </p>
             </section>
 
             {isAdmin && (

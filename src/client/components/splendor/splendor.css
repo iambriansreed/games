@@ -37,12 +37,15 @@
 /* Rainbow celebration: draw each band, then the whole arc fades. */
 @keyframes rainbow-draw {
     /* One continuous pass: the arc sweeps in from the left, fills, and
-       carries on out to the right — a single smooth in-and-out motion. */
+       carries on out to the right — a single smooth in-and-out motion. The
+       dash is each band's own length (--len, set inline by RainbowArc), so the
+       smaller inner arcs of a double or triple rainbow sweep in step with the
+       outer one instead of drawing early and leaving late. */
     from {
-        stroke-dashoffset: 1560;
+        stroke-dashoffset: var(--len, 1560px);
     }
     to {
-        stroke-dashoffset: -1560;
+        stroke-dashoffset: calc(-1 * var(--len, 1560px));
     }
 }
 
@@ -668,6 +671,8 @@
 
         /* Each gem colour gets its own background texture */
 
+        /* Above the backdrop (50) but below the app header (65, styles.css), so a
+           lifted card slides under the header rather than over it. */
         &.is-lifted {
             position: relative;
             z-index: 60;
@@ -1161,12 +1166,14 @@
         animation: rainbow-appear 6.5s ease forwards;
     }
 
+    /* Duration and delay are set inline per path: extra arcs start a beat later
+       and run shorter, so every arc finishes together at RAINBOW_MS. */
     .rainbow-arc path {
         fill: none;
         stroke-width: 17;
         stroke-linecap: round;
-        stroke-dasharray: 1560;
-        stroke-dashoffset: 1560;
+        stroke-dasharray: var(--len, 1560px);
+        stroke-dashoffset: var(--len, 1560px);
         animation: rainbow-draw 6.5s ease-in-out forwards;
     }
 
@@ -1455,6 +1462,85 @@
         animation: turn-flash-pop-enter 0.4s cubic-bezier(0.34, 1.4, 0.5, 1) forwards;
     }
 
+    /* Replaying opponents' moves: nothing on the board may be tapped while the
+       frames play back, so a clear shield covers everything (above the flights
+       at 90 and the rainbow at 95, below the turn flash at 150). Only its
+       caption bar is interactive. */
+    .replay-shield {
+        position: fixed;
+        inset: 0;
+        z-index: 120;
+        cursor: default;
+        /* Centres the caption bar along the bottom without a transform, which
+           the bar's pop-in animation would otherwise override. */
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+        align-items: center;
+        padding: 0 12px max(18px, env(safe-area-inset-bottom));
+    }
+
+    .replay-banner {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        max-width: 100%;
+        padding: 8px 8px 8px 12px;
+        border-radius: 14px;
+        background: rgba(24, 27, 33, 0.96);
+        border: 1px solid #353c47;
+        box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55);
+        animation: turn-flash-pop-enter 0.3s cubic-bezier(0.34, 1.4, 0.5, 1) both;
+    }
+
+    /* "Replay" badge — a red live-dot style tag, so it's clearly not the game. */
+    .replay-tag {
+        flex: 0 0 auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.8px;
+        text-transform: uppercase;
+        color: #f2d2cd;
+    }
+
+    .replay-tag::before {
+        content: '';
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--gem-red);
+        animation: buy-outline-pulse 1.2s ease-in-out infinite;
+    }
+
+    .replay-caption {
+        min-width: 0;
+        font-size: 13px;
+        font-weight: 600;
+        color: #e7e3d8;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .replay-step {
+        flex: 0 0 auto;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        color: #9aa0ab;
+    }
+
+    .replay-skip {
+        flex: 0 0 auto;
+        margin: 0;
+        padding: 8px 14px;
+        font-size: 13px;
+        background: #353a45;
+        color: #e7e3d8;
+    }
+
     /* Opening-round pass offer, called out under the gold "Your turn" label in a
        cooler colour so it reads as a second, optional path rather than a warning. */
     .turn-flash-sub {
@@ -1479,6 +1565,18 @@
         padding: 12px 24px;
         font-size: 15px;
         animation: turn-flash-pop-enter 0.45s cubic-bezier(0.34, 1.4, 0.5, 1) 0.06s both;
+    }
+
+    /* Replaying what you missed is a side path, so it sits in the neutral grey
+       of the cancel buttons next to the gold Continue. */
+    .turn-flash-replay {
+        margin: 0;
+        min-width: 150px;
+        padding: 12px 24px;
+        font-size: 15px;
+        background: #353a45;
+        color: #e7e3d8;
+        animation: turn-flash-pop-enter 0.45s cubic-bezier(0.34, 1.4, 0.5, 1) 0.08s both;
     }
 
     /* Passing is the alternative to playing, so it takes the blue against the

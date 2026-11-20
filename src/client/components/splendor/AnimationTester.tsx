@@ -11,10 +11,12 @@ import { SplendorBoard } from './SplendorBoard';
 // seed their refs, nothing animates), then either transitions to a second state
 // (firing the diff-driven animations: token/noble flights, rainbow, turn change,
 // game over) or performs a real click (the card buy/reserve flights are driven
-// by the click handlers, so we click the rendered card and its action button).
+// by the click handlers, so we click the rendered card and its action button) —
+// or both, for the replay, which needs a turn change and then a tap on Replay.
 
 const ISO = '2020-01-01T00:00:00.000Z';
 const BOT_ID = 'dev-bot';
+const BOT2_ID = 'dev-bot-2';
 const COLORS: CardColor[] = ['white', 'blue', 'green', 'red', 'brown'];
 
 interface AnimStep {
@@ -23,8 +25,18 @@ interface AnimStep {
     desc: string;
     seed: SplendorState;
     fired?: SplendorState;
+    /** Recent pre-move states delivered alongside `fired`, as the server would. */
+    history?: SplendorState[];
     interact?: () => Promise<void>;
+    /** How long after `fired` to run `interact` (default: right away). */
+    interactAfter?: number;
     hold: number;
+}
+
+/** What the board is showing: the live state plus the recent history it came with. */
+interface Frame {
+    state: SplendorState;
+    history?: SplendorState[];
 }
 
 function clone<T>(v: T): T {
@@ -35,7 +47,10 @@ function wait(ms: number): Promise<void> {
     return new Promise((r) => setTimeout(r, ms));
 }
 
-function makeDetail(state: SplendorState, meId: string): GameDetail {
+const BOT_NAMES: Record<string, string> = { [BOT_ID]: 'Dev Bot', [BOT2_ID]: 'Bot Two' };
+
+function makeDetail(frame: Frame, meId: string): GameDetail {
+    const { state, history } = frame;
     return {
         id: 'anim-demo',
         type: 'splendor',
@@ -46,14 +61,19 @@ function makeDetail(state: SplendorState, meId: string): GameDetail {
         joinCode: 'DEMO',
         maxPlayers: 4,
         minPlayers: 2,
-        players: [
-            { userId: meId, name: 'You', picture: null, seat: 0, record: { wins: 0, losses: 0 } },
-            { userId: BOT_ID, name: 'Dev Bot', picture: null, seat: 1, record: { wins: 3, losses: 1 } },
-        ],
+        // Seats follow the state's player order, so steps can field extra bots.
+        players: state.players.map((p, seat) => ({
+            userId: p.id,
+            name: p.id === meId ? 'You' : BOT_NAMES[p.id] ?? 'Bot',
+            picture: null,
+            seat,
+            record: { wins: seat * 3, losses: 1 },
+        })),
         winnerId: state.winnerId,
         createdAt: ISO,
         updatedAt: ISO,
         state,
+        ...(history ? { history } : {}),
         youSeat: 0,
     };
 }
@@ -274,6 +294,92 @@ function buildSteps(meId: string): AnimStep[] {
         });
     }
 
+    // 7b. Double rainbow — two cards of every colour nests a second arc.
+    {
+        const seed = base();
+        seed.players[0].cards = [
+            ...COLORS.map((c) => card(c)),
+            card('white'),
+            card('blue'),
+            card('green'),
+            card('red'),
+        ];
+        const fired = clone(seed);
+        fired.players[0].cards = [...fired.players[0].cards, card('brown')];
+        steps.push({
+            key: 'rainbow-2',
+            label: 'Double rainbow!',
+            desc: 'Two of every colour draws a second arc inside the first — same run time',
+            seed,
+            fired,
+            hold: 6700,
+        });
+    }
+
+    // 7c. Triple rainbow — three of every colour.
+    {
+        const seed = base();
+        seed.players[0].cards = [
+            ...COLORS.map((c) => card(c)),
+            ...COLORS.map((c) => card(c)),
+            card('white'),
+            card('blue'),
+            card('green'),
+            card('red'),
+        ];
+        const fired = clone(seed);
+        fired.players[0].cards = [...fired.players[0].cards, card('brown')];
+        steps.push({
+            key: 'rainbow-3',
+            label: 'Triple rainbow!',
+            desc: 'Three of every colour: three arcs, still finishing together',
+            seed,
+            fired,
+            hold: 6700,
+        });
+    }
+
+    // 7d. Replay — your turn comes round after two opponents moved; tap Replay
+    // on the announcement to rewind and watch both moves play back.
+    {
+        const h0 = createInitialState([meId, BOT_ID, BOT2_ID], ISO);
+        h0.startSeat = 0;
+        h0.turn = 4;
+        h0.current = 1; // Dev Bot to move
+        // Dev Bot takes three tokens.
+        const h1 = clone(h0);
+        for (const g of ['red', 'green', 'brown'] as const) {
+            h1.players[1].tokens[g] += 1;
+            h1.bank[g] -= 1;
+        }
+        h1.log = [...h1.log, `${BOT_ID} took red, green, brown`];
+        h1.turn = 5;
+        h1.current = 2; // Bot Two to move
+        // Bot Two reserves a board card (and takes a gold).
+        const live = clone(h1);
+        const taken = live.board[2].find(Boolean) as SplendorCard;
+        live.board[2] = live.board[2].map((c) => (c?.id === taken.id ? null : c));
+        live.players[2].reserved = [{ id: taken.id, level: taken.level, hidden: true }];
+        live.players[2].tokens.gold += 1;
+        live.bank.gold -= 1;
+        live.log = [...live.log, `${BOT2_ID} reserved a card`];
+        live.turn = 6;
+        live.current = 0; // your turn
+        steps.push({
+            key: 'replay',
+            label: 'Replay last moves',
+            desc: 'From the your-turn screen, rewind and watch the moves you missed',
+            seed: h1,
+            fired: live,
+            history: [h0, h1],
+            interact: async () => {
+                document.querySelector<HTMLElement>('.turn-flash-replay')?.click();
+            },
+            interactAfter: 1400,
+            hold: 9000,
+        });
+    }
+
     // 8. Final round banner.
     {
         const seed = base();
@@ -332,7 +438,7 @@ export function AnimationTester({ me }: { me: PublicUser }) {
     // Bumped on every (re)start so the board remounts and its diff refs reseed —
     // even when replaying the same step index.
     const [run, setRun] = useState(0);
-    const [displayState, setDisplayState] = useState<SplendorState>(steps[0].seed);
+    const [frame, setFrame] = useState<Frame>({ state: steps[0].seed });
     const [toast, setToast] = useState<string | null>(null);
     const toastTimer = useRef<number>();
     // When on, the current step replays continuously instead of advancing. Read
@@ -351,7 +457,7 @@ export function AnimationTester({ me }: { me: PublicUser }) {
 
     function goTo(idx: number) {
         setToast(null);
-        setDisplayState(steps[idx].seed);
+        setFrame({ state: steps[idx].seed });
         setI(idx);
         setRun((r) => r + 1);
     }
@@ -366,8 +472,12 @@ export function AnimationTester({ me }: { me: PublicUser }) {
             window.setTimeout(async () => {
                 if (!alive) return;
                 const s = steps[i];
-                if (s.interact) await s.interact();
-                else if (s.fired) setDisplayState(s.fired);
+                if (s.fired) setFrame({ state: s.fired, history: s.history });
+                if (s.interact) {
+                    if (s.interactAfter) await wait(s.interactAfter);
+                    if (!alive) return;
+                    await s.interact();
+                }
                 timers.push(
                     window.setTimeout(() => {
                         if (alive) goTo(repeatRef.current ? i : (i + 1) % n);
@@ -392,7 +502,7 @@ export function AnimationTester({ me }: { me: PublicUser }) {
         <div className="anim-tester">
             <SplendorBoard
                 key={run}
-                detail={makeDetail(displayState, me.id)}
+                detail={makeDetail(frame, me.id)}
                 me={me}
                 dispatch={() => {}}
                 onToast={pushToast}
